@@ -1,0 +1,9 @@
+services:
+  kiosk-server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"   # chỉ cho reverse proxy (nginx/Caddy) truy cập, KHÔNG mở thẳng ra Internet
+    volumes:
+      - ./data:/app/data
+    env_file: .env

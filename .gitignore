@@ -1,0 +1,61 @@
+# =====================================================================
+# Environment & Secrets
+# =====================================================================
+.env
+.env.*
+!.env.example
+**/appsettings.Development.json
+**/appsettings.*.local.json
+
+# =====================================================================
+# .NET / Server (ASP.NET Core)
+# =====================================================================
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+.vs/
+*.user
+*.userosscache
+*.suo
+*.userprefs
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# SQLite databases & runtime data
+*.db
+*.db-shm
+*.db-wal
+server/[Dd]ata/*.db*
+server/data/
+
+# =====================================================================
+# Android / Gradle / IntelliJ IDEA
+# =====================================================================
+*.iml
+.gradle/
+**/local.properties
+.idea/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Keystore files (signing keys)
+*.jks
+*.keystore
+
+# =====================================================================
+# OS & IDEs
+# =====================================================================
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+*.swp
+*~
