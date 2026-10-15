@@ -1,18 +1,17 @@
-using Microsoft.EntityFrameworkCore;
-using VietQrKiosk.Server.Data;
+using VietQrKiosk.Server.Infra.Repositories;
 
 namespace VietQrKiosk.Server.Services;
 
 /// <summary>Định kỳ chuyển các đơn PENDING quá hạn sang EXPIRED và đánh thức app đang chờ.</summary>
 public class OrderExpiryService : BackgroundService
 {
-    private readonly IServiceScopeFactory _scopes;
+    private readonly IOrderRepository _orderRepo;
     private readonly OrderNotifier _notifier;
     private readonly ILogger<OrderExpiryService> _log;
 
-    public OrderExpiryService(IServiceScopeFactory scopes, OrderNotifier notifier, ILogger<OrderExpiryService> log)
+    public OrderExpiryService(IOrderRepository orderRepo, OrderNotifier notifier, ILogger<OrderExpiryService> log)
     {
-        _scopes = scopes;
+        _orderRepo = orderRepo;
         _notifier = notifier;
         _log = log;
     }
@@ -36,28 +35,21 @@ public class OrderExpiryService : BackgroundService
 
     private async Task TickAsync(CancellationToken ct)
     {
-        using var scope = _scopes.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDb>();
         var now = DateTime.UtcNow;
-
-        var expired = await db.Orders
-            .Where(o => o.Status == OrderStatus.Pending && o.ExpiresAt < now)
-            .ToListAsync(ct);
+        var expired = await _orderRepo.GetExpiredPendingOrdersAsync(now, ct);
         if (expired.Count == 0) return;
 
-        foreach (var o in expired) o.Status = OrderStatus.Expired;
-
-        try
+        var markedCount = 0;
+        foreach (var o in expired)
         {
-            await db.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            // Có đơn vừa được trả tiền/huỷ đúng lúc này: bỏ lượt, vòng sau quét lại.
-            db.ChangeTracker.Clear();
+            if (await _orderRepo.TryMarkExpiredAsync(o.OrderId, ct))
+            {
+                markedCount++;
+                _notifier.Notify(o.OrderId);
+            }
         }
 
-        foreach (var o in expired) _notifier.Notify(o.OrderId);
-        _log.LogInformation("Đã quét {Count} đơn hết hạn", expired.Count);
+        if (markedCount > 0)
+            _log.LogInformation("Đã quét và hết hạn {Count} đơn", markedCount);
     }
 }

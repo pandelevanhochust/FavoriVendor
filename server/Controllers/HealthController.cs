@@ -1,12 +1,16 @@
-using Microsoft.AspNetCore.Mvc;
+using VietQrKiosk.Server.Services;
 
 namespace VietQrKiosk.Server.Controllers;
 
-[ApiController]
-[Route("healthz")]
-public class HealthController : ControllerBase
+public static class HealthController
 {
-    [HttpGet]
-    public IActionResult Get() => Ok(new { ok = true });
+    public static IEndpointRouteBuilder MapHealthEndpoints(this IEndpointRouteBuilder app)
+    {
+        app.MapGet("/healthz", (VietQrMqttClient mqtt, TerminalStore terminal) =>
+            Results.Ok(new { ok = true, mqttConnected = mqtt.IsConnected, terminalConfigured = terminal.IsConfigured }))
+            .WithTags("Health");
+
+        return app;
+    }
 }
 

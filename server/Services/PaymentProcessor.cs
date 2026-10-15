@@ -1,65 +1,76 @@
 using Microsoft.EntityFrameworkCore;
-using VietQrKiosk.Server.Data;
+using VietQrKiosk.Server.Infra;
+using VietQrKiosk.Server.Infra.Repositories;
 using VietQrKiosk.Server.Models;
 
 namespace VietQrKiosk.Server.Services;
 
 /// <summary>
-/// Xử lý một giao dịch VietQR gọi về (Transaction Sync). Nguyên tắc:
-///  1. Idempotent: cùng transactionid chỉ xử lý một lần, gọi lại vẫn trả thành công.
+/// Xử lý một khoản tiền vào (từ tin biến động số dư hoặc từ tra cứu trạng thái). Nguyên tắc:
+///  1. Idempotent: cùng referenceNumber chỉ xử lý một lần. Cùng một giao dịch có thể đến hai đường (BĐSD và tra cứu).
 ///  2. Chỉ tự xác nhận (PAID) khi đơn đang PENDING VÀ số tiền khớp tuyệt đối.
 ///  3. Mọi trường hợp còn lại không bị bỏ qua: ghi nhật ký + chuyển đơn sang REVIEW để người xử lý.
 /// </summary>
 public class PaymentProcessor
 {
-    private readonly AppDb _db;
+    private readonly IOrderRepository _orderRepo;
+    private readonly IBankTransactionRepository _txnRepo;
     private readonly OrderNotifier _notifier;
     private readonly ILogger<PaymentProcessor> _log;
 
-    public PaymentProcessor(AppDb db, OrderNotifier notifier, ILogger<PaymentProcessor> log)
+    public PaymentProcessor(
+        IOrderRepository orderRepo,
+        IBankTransactionRepository txnRepo,
+        OrderNotifier notifier,
+        ILogger<PaymentProcessor> log)
     {
-        _db = db;
+        _orderRepo = orderRepo;
+        _txnRepo = txnRepo;
         _notifier = notifier;
         _log = log;
     }
 
-    /// <returns>reftransactionid trả lại cho VietQR.</returns>
-    public async Task<string> ProcessAsync(TransactionCallback cb, CancellationToken ct)
+    /// <returns>Kết quả xử lý (PAID, NO_ORDER, AMOUNT_MISMATCH, DUPLICATE_PAYMENT, LATE_PAYMENT_*...).</returns>
+    public async Task<string> ProcessAsync(PaymentNotification n, CancellationToken ct)
     {
-        var key = !string.IsNullOrWhiteSpace(cb.TransactionId) ? cb.TransactionId!.Trim()
-                : !string.IsNullOrWhiteSpace(cb.ReferenceNumber) ? cb.ReferenceNumber!.Trim()
-                : "NOID-" + Guid.NewGuid().ToString("N");
+        var key = !string.IsNullOrWhiteSpace(n.ReferenceNumber)
+            ? n.ReferenceNumber!.Trim()
+            : "NOREF-" + Guid.NewGuid().ToString("N");
 
-        var existing = await _db.BankTransactions.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.TransactionId == key, ct);
-        if (existing != null)
+        var existing = await _txnRepo.GetByIdAsync(key, ct);
+
+        // Giao dịch đã xử lý xong (kể cả REVIEW) thì không làm lại. Riêng NO_ORDER được đánh giá lại: tin biến động số dư
+        // đầu tiên có thể thiếu orderId, còn phản hồi tra cứu sau đó (cùng referenceNumber) thì có.
+        if (existing != null && existing.Result != "NO_ORDER")
         {
-            _log.LogInformation("Giao dịch {Txn} đã xử lý trước đó, bỏ qua", key);
-            return existing.RefTransactionId;
+            _log.LogInformation("Giao dịch {Ref} ({Source}) đã xử lý trước đó -> {Result}", key, n.Source, existing.Result);
+            return existing.Result;
         }
 
-        var txn = new BankTransaction
+        var isRetry = existing != null;
+        var txn = existing ?? new BankTransaction
         {
             TransactionId = key,
             RefTransactionId = Guid.NewGuid().ToString("N"),
-            ReferenceNumber = cb.ReferenceNumber,
-            Amount = (long)cb.Amount,
-            Content = cb.Content,
-            BankAccount = cb.BankAccount,
-            TransType = cb.TransType ?? "",
-            TransactionTimeMs = cb.TransactionTime,
+            ReferenceNumber = n.ReferenceNumber,
+            Amount = (long)n.Amount,
+            Content = n.Content,
+            BankAccount = n.BankAccount,
+            TransType = n.TransType ?? "",
+            TransactionTimeMs = n.TimePaidMs,
             ReceivedAt = DateTime.UtcNow
         };
 
         string? notifyOrderId = null;
 
-        if (!string.Equals(cb.TransType, "C", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(n.TransType, "C", StringComparison.OrdinalIgnoreCase))
         {
             txn.Result = "IGNORED_NOT_CREDIT"; // chỉ quan tâm tiền VÀO
         }
         else
         {
-            var order = await FindOrderAsync(cb, ct);
+            var token = Helpers.ExtractQrToken(n.Content);
+            var order = await _orderRepo.FindMatchingOrderAsync(n.OrderId, token, n.Content, ct);
             if (order == null)
             {
                 txn.Result = "NO_ORDER";
@@ -67,15 +78,22 @@ public class PaymentProcessor
             else
             {
                 txn.OrderId = order.OrderId;
-                var amountOk = cb.Amount == order.Amount;
+                var amountOk = n.Amount == order.Amount;
 
                 if (order.Status == OrderStatus.Pending && amountOk)
                 {
-                    order.Status = OrderStatus.Paid;
-                    order.PaidAt = DateTime.UtcNow;
-                    order.BankTransactionId = key;
-                    txn.Result = "PAID";
-                    notifyOrderId = order.OrderId;
+                    var updated = await _orderRepo.TryMarkPaidAsync(order.OrderId, key, DateTime.UtcNow, ct);
+                    if (updated)
+                    {
+                        txn.Result = "PAID";
+                        notifyOrderId = order.OrderId;
+                    }
+                    else
+                    {
+                        // Luồng khác đã thay đổi trạng thái đơn
+                        var current = await _orderRepo.GetByIdAsync(order.OrderId, ct);
+                        txn.Result = current?.Status == OrderStatus.Paid ? "DUPLICATE_PAYMENT" : "LATE_PAYMENT_" + current?.Status;
+                    }
                 }
                 else if (order.Status == OrderStatus.Paid)
                 {
@@ -83,7 +101,7 @@ public class PaymentProcessor
                 }
                 else if (order.Status == OrderStatus.Pending)
                 {
-                    order.Status = OrderStatus.Review; // sai số tiền
+                    await _orderRepo.MarkReviewAsync(order.OrderId, ct); // sai số tiền
                     txn.Result = "AMOUNT_MISMATCH";
                     notifyOrderId = order.OrderId;
                 }
@@ -91,53 +109,34 @@ public class PaymentProcessor
                 {
                     // Expired / Cancelled / Review: tiền về nhưng máy không còn chờ -> người xử lý
                     txn.Result = "LATE_PAYMENT_" + order.Status.ToString().ToUpperInvariant();
-                    order.Status = OrderStatus.Review;
+                    await _orderRepo.MarkReviewAsync(order.OrderId, ct);
                     notifyOrderId = order.OrderId;
                 }
             }
         }
 
-        _db.BankTransactions.Add(txn);
-        try
+        if (isRetry)
         {
-            await _db.SaveChangesAsync(ct);
+            await _txnRepo.UpdateResultAsync(key, txn.Result, txn.OrderId, ct);
         }
-        catch (DbUpdateException ex)
+        else
         {
-            // Hai request cùng transactionid chạy song song, hoặc đơn bị đổi trạng thái giữa chừng.
-            _db.ChangeTracker.Clear();
-            var dup = await _db.BankTransactions.AsNoTracking()
-                .FirstOrDefaultAsync(t => t.TransactionId == key, ct);
-            if (dup != null) return dup.RefTransactionId;
-
-            _log.LogError(ex, "Lưu giao dịch {Txn} thất bại, VietQR sẽ gọi lại", key);
-            throw; // trả lỗi -> VietQR retry -> lần sau xử lý đúng (idempotent)
+            try
+            {
+                await _txnRepo.CreateAsync(txn, ct);
+            }
+            catch (DbUpdateException)
+            {
+                var dup = await _txnRepo.GetByIdAsync(key, ct);
+                if (dup != null) return dup.Result;
+                throw;
+            }
         }
 
-        _log.LogInformation("Transaction {Txn}: order={Order} amount={Amount} -> {Result}",
-            key, txn.OrderId ?? "-", txn.Amount, txn.Result);
+        _log.LogInformation("Giao dịch {Ref} [{Source}]{Retry}: order={Order} số tiền={Amount} -> {Result}",
+            key, n.Source, isRetry ? " (đánh giá lại NO_ORDER)" : "", txn.OrderId ?? "-", txn.Amount, txn.Result);
 
         if (notifyOrderId != null) _notifier.Notify(notifyOrderId);
-        return txn.RefTransactionId;
-    }
-
-    private async Task<Order?> FindOrderAsync(TransactionCallback cb, CancellationToken ct)
-    {
-        Order? order = null;
-
-        if (!string.IsNullOrWhiteSpace(cb.OrderId))
-        {
-            var id = cb.OrderId.Trim();
-            order = await _db.Orders.FirstOrDefaultAsync(o => o.OrderId == id, ct);
-        }
-
-        if (order == null && !string.IsNullOrWhiteSpace(cb.Content))
-        {
-            // Dự phòng: khớp theo nội dung chuyển khoản (sandbox VietQR trả content dạng VQRxxxx).
-            var content = cb.Content.Trim().ToUpper();
-            order = await _db.Orders.FirstOrDefaultAsync(o => o.QrContent.ToUpper() == content, ct);
-        }
-
-        return order;
+        return txn.Result;
     }
 }

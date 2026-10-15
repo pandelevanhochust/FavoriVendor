@@ -1,8 +1,6 @@
-using System.Text.Json.Serialization;
-
 namespace VietQrKiosk.Server.Models;
 
-// ---------- API cho app Android (máy) ----------
+// ====================================================================== API cho app Android (máy)
 
 public record CreateOrderRequest(long Amount, string? DeviceId);
 
@@ -18,50 +16,126 @@ public record OrderDto(
 
 public record ErrorBody(string Message);
 
-// ---------- API server cung cấp cho VietQR gọi vào ----------
+// ====================================================================== nội bộ
 
-/// <summary>Response của API Get Token (đối tác) theo tài liệu VietQR.</summary>
-public record TokenResponse(
-    [property: JsonPropertyName("access_token")] string AccessToken,
-    [property: JsonPropertyName("token_type")] string TokenType,
-    [property: JsonPropertyName("expires_in")] int ExpiresIn);
+/// <summary>Một khoản tiền vào, bất kể đến từ tin biến động số dư hay từ tra cứu trạng thái.</summary>
+public record PaymentNotification(
+    string? ReferenceNumber,
+    decimal Amount,
+    string? Content,
+    string? OrderId,
+    string? TransType,
+    string? BankAccount,
+    long TimePaidMs,
+    string Source);
 
-/// <summary>Body VietQR gửi vào API Transaction Sync.</summary>
-public class TransactionCallback
+// ====================================================================== tin nhắn MQTT (tài liệu VietQR)
+
+/// <summary>vietqr/request/{terminalCode}</summary>
+public class QrRequestMessage
 {
-    [JsonPropertyName("transactionid")] public string? TransactionId { get; set; }
-    [JsonPropertyName("transactiontime")] public long TransactionTime { get; set; }
-    [JsonPropertyName("referencenumber")] public string? ReferenceNumber { get; set; }
-    [JsonPropertyName("amount")] public decimal Amount { get; set; }
-    [JsonPropertyName("content")] public string? Content { get; set; }
-    [JsonPropertyName("bankaccount")] public string? BankAccount { get; set; }
-    [JsonPropertyName("orderId")] public string? OrderId { get; set; }
-    [JsonPropertyName("transType")] public string? TransType { get; set; }
-    [JsonPropertyName("sign")] public string? Sign { get; set; }
-    [JsonPropertyName("terminalCode")] public string? TerminalCode { get; set; }
-    [JsonPropertyName("subTerminalCode")] public string? SubTerminalCode { get; set; }
-    [JsonPropertyName("serviceCode")] public string? ServiceCode { get; set; }
-    [JsonPropertyName("urlLink")] public string? UrlLink { get; set; }
+    public long Amount { get; set; }
+    public string Content { get; set; } = "";
+    public string BankAccount { get; set; } = "";
+    public string BankCode { get; set; } = "";
+    public string UserBankName { get; set; } = "";
+    public string TransType { get; set; } = "C";
+    public string OrderId { get; set; } = "";
+    public string TerminalCode { get; set; } = "";
+    public string? ServiceCode { get; set; }
 }
 
-public record RefObject([property: JsonPropertyName("reftransactionid")] string Reftransactionid);
-
-/// <summary>Định dạng response VietQR yêu cầu: {error, errorReason, toastMessage, object:{reftransactionid}}</summary>
-public record CallbackResponse(bool Error, string? ErrorReason, string? ToastMessage, RefObject? Object);
-
-// ---------- DTO đọc response của VietQR ----------
-
-public class VietQrTokenDto
+/// <summary>vietqr/response/{terminalCode}. Lưu ý: content VietQR trả về có tiền tố "VQRxxxxxxxxxx ".</summary>
+public class QrResponseMessage
 {
-    [JsonPropertyName("access_token")] public string? AccessToken { get; set; }
-    [JsonPropertyName("expires_in")] public int ExpiresIn { get; set; }
-}
-
-public class VietQrGenerateDto
-{
-    public string? QrCode { get; set; }
+    public string? BankCode { get; set; }
+    public string? BankName { get; set; }
+    public string? BankAccount { get; set; }
+    public string? UserBankName { get; set; }
+    public decimal Amount { get; set; }
     public string? Content { get; set; }
+    public string? QrCode { get; set; }
+    public string? OrderId { get; set; }
+    public string? ImgId { get; set; }
+    public string? TransactionId { get; set; }
+    public string? TransactionRefId { get; set; }
     public string? QrLink { get; set; }
-    public string? Status { get; set; }   // "FAILED" khi lỗi
-    public string? Message { get; set; }  // mã lỗi, vd E34
+    public string? TerminalCode { get; set; }
+    public string? ServiceCode { get; set; }
+}
+
+/// <summary>vietqr/bdsd/{terminalCode}. Ví dụ trong tài liệu cho thấy orderId có thể vắng hoặc rỗng.</summary>
+public class BdsdMessage
+{
+    public string? BankAccount { get; set; }
+    public decimal Amount { get; set; }
+    public string? TransType { get; set; }
+    public string? ReferenceNumber { get; set; }
+    public string? OrderId { get; set; }
+    public string? Content { get; set; }
+    /// <summary>0: chờ, 1: thành công, 2: đã huỷ</summary>
+    public int? Status { get; set; }
+    /// <summary>dd/MM/yyyy HH:mm:ss, múi giờ UTC+7</summary>
+    public string? TimePaid { get; set; }
+}
+
+/// <summary>vietqr/request-status/{terminalCode}</summary>
+public class StatusRequestMessage
+{
+    public string BankAccount { get; set; } = "";
+    /// <summary>0: theo orderId, 1: theo referenceNumber</summary>
+    public int Type { get; set; }
+    public string Value { get; set; } = "";
+    public string CheckSum { get; set; } = "";
+}
+
+/// <summary>vietqr/response-status/{terminalCode}</summary>
+public class StatusResponseMessage
+{
+    public string? ReferenceNumber { get; set; }
+    public string? OrderId { get; set; }
+    public decimal Amount { get; set; }
+    public string? Content { get; set; }
+    public string? TransType { get; set; }
+    /// <summary>0: chờ thanh toán, 1: thành công, 2: đã huỷ</summary>
+    public int Status { get; set; }
+    public int Type { get; set; }
+    public long TimeCreated { get; set; }
+    /// <summary>Giây kể từ epoch.</summary>
+    public long TimePaid { get; set; }
+    public string? TerminalCode { get; set; }
+    public string? Note { get; set; }
+    public int RefundCount { get; set; }
+    public decimal AmountRefunded { get; set; }
+}
+
+/// <summary>/vqr/handle-box</summary>
+public class BoxSyncRequest
+{
+    public string MacAddr { get; set; } = "";
+    public string? SerialNumber { get; set; }
+    public string SecretKey { get; set; } = "";
+    public string CheckSum { get; set; } = "";
+}
+
+/// <summary>/vqr/handle-box/response/{macAddr}</summary>
+public class BoxSyncResponse
+{
+    public string? QrCertificate { get; set; }
+    public string? BoxId { get; set; }
+}
+
+/// <summary>vietqr/boxId/{boxId}: gửi xuống sau khi chủ tài khoản quét qrCertificate bằng app VietQR.</summary>
+public class BoxActivationMessage
+{
+    public string? NotificationType { get; set; }
+    public string? BankAccount { get; set; }
+    public string? BankShortName { get; set; }
+    public string? UserBankName { get; set; }
+    public string? TerminalCode { get; set; }
+    public string? TerminalName { get; set; }
+    public string? QrCode { get; set; }
+    public string? BankCode { get; set; }
+    public string? ImgBank { get; set; }
+    public string? HomePage { get; set; }
 }

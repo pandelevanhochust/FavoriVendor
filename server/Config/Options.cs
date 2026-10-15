@@ -1,33 +1,49 @@
 namespace VietQrKiosk.Server.Config;
 
-/// <summary>Thông tin gọi API của VietQR (do VietQR cấp cho bạn).</summary>
-public class VietQrOptions
+/// <summary>
+/// Kết nối MQTT tới VietQR (tài liệu "API Host to Device (MQTTs)").
+/// Host, Port, Username, Password do VietQR cung cấp sau khi đăng ký.
+/// </summary>
+public class MqttOptions
 {
-    /// <summary>Test: https://dev.vietqr.org/  |  Golive: https://api.vietqr.org/</summary>
-    public string BaseUrl { get; set; } = "https://dev.vietqr.org/";
+    public string Host { get; set; } = "";
+    public int Port { get; set; } = 8883;
+    public bool UseTls { get; set; } = true;
+    /// <summary>Chỉ dùng khi thử với broker chứng chỉ tự ký. KHÔNG bật ở môi trường thật.</summary>
+    public bool AllowUntrustedCertificate { get; set; }
     public string Username { get; set; } = "";
     public string Password { get; set; } = "";
 
-    /// <summary>Tài khoản nhận tiền đã liên kết với VietQR.</summary>
+    /// <summary>
+    /// Phải CỐ ĐỊNH và duy nhất: broker dùng nó để giữ phiên và gửi lại tin chưa nhận khi server mất kết nối.
+    /// Hai tiến trình dùng cùng ClientId sẽ đá nhau liên tục.
+    /// </summary>
+    public string ClientId { get; set; } = "vietqr-kiosk-server";
+    /// <summary>false = phiên bền vững (khuyến nghị): tin biến động số dư gửi lúc server offline vẫn được giao lại.</summary>
+    public bool CleanSession { get; set; }
+    public int KeepAliveSeconds { get; set; } = 30;
+
+    // ----- Điểm bán và tài khoản nhận tiền (có thể bỏ trống nếu dùng lệnh đồng bộ để lấy tự động) -----
+    public string TerminalCode { get; set; } = "";
     public string BankCode { get; set; } = "MB";
     public string BankAccount { get; set; } = "";
-    /// <summary>Tên chủ tài khoản, không dấu.</summary>
+    /// <summary>Tên chủ tài khoản, dùng khi tạo QR và để tính checkSum tra cứu giao dịch.</summary>
     public string AccountName { get; set; } = "";
+    public string ServiceCode { get; set; } = "";
+
+    /// <summary>Chờ VietQR trả mã QR tối đa ngần này giây.</summary>
+    public int QrResponseTimeoutSeconds { get; set; } = 15;
+
+    // ----- Đồng bộ điểm bán (chỉ cần khi chưa có TerminalCode) -----
+    public string SecretKey { get; set; } = "";
+    public string MacAddr { get; set; } = "";
+    public string SerialNumber { get; set; } = "";
 }
 
-/// <summary>
-/// Thông tin để VietQR gọi vào server của bạn (Get Token + Transaction Sync).
-/// Username/Password do BẠN tự đặt rồi gửi cho VietQR khi đăng ký.
-/// </summary>
-public class CallbackOptions
+/// <summary>Khoá cho các API quản trị (/admin/...). Để trống = tắt hoàn toàn các API này.</summary>
+public class AdminOptions
 {
-    /// <summary>Phần "URL Path (Suffix)" khai báo với VietQR. Mặc định: vietqr</summary>
-    public string BasePath { get; set; } = "vietqr";
-    public string Username { get; set; } = "";
-    public string Password { get; set; } = "";
-    /// <summary>Khoá ký JWT (HS256), tối thiểu 32 ký tự ngẫu nhiên.</summary>
-    public string JwtSecret { get; set; } = "";
-    public int TokenSeconds { get; set; } = 300;
+    public string ApiKey { get; set; } = "";
 }
 
 /// <summary>Cấu hình cho máy (app Android).</summary>
@@ -35,7 +51,7 @@ public class KioskOptions
 {
     /// <summary>Khoá API app Android gửi trong header X-Api-Key. Tối thiểu 16 ký tự.</summary>
     public string ApiKey { get; set; } = "";
-    /// <summary>Thời gian sống của một đơn/QR (giây). VietQR cho phép tối đa 15 phút.</summary>
+    /// <summary>Thời gian sống của một đơn/QR (giây). QR động của VietQR sống tối đa 15 phút.</summary>
     public int OrderTtlSeconds { get; set; } = 300;
     public long MinAmount { get; set; } = 1000;
     public long MaxAmount { get; set; } = 20_000_000;
