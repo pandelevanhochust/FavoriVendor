@@ -85,18 +85,164 @@ public static class Helpers
     }
 }
 
-/// <summary>Tuỳ chọn JSON cho tin MQTT: VietQR lúc gửi số dạng chuỗi ("amount":"20000"), lúc dạng số thực (25000.0).</summary>
+/// <summary>Tuỳ chọn JSON cho tin MQTT: linh hoạt xử lý mọi định dạng số, chuỗi, boolean từ VietQR.</summary>
 public static class JsonOpts
 {
-    public static readonly JsonSerializerOptions Read = new(JsonSerializerDefaults.Web)
+    public static readonly JsonSerializerOptions Read = CreateReadOptions();
+
+    private static JsonSerializerOptions CreateReadOptions()
     {
-        NumberHandling = JsonNumberHandling.AllowReadingFromString
-    };
+        var opt = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            NumberHandling = JsonNumberHandling.AllowReadingFromString,
+            PropertyNameCaseInsensitive = true
+        };
+        opt.Converters.Add(new FlexibleIntConverter());
+        opt.Converters.Add(new FlexibleNullableIntConverter());
+        opt.Converters.Add(new FlexibleNullableLongConverter());
+        opt.Converters.Add(new FlexibleNullableDecimalConverter());
+        return opt;
+    }
 
     public static readonly JsonSerializerOptions Write = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
+}
+
+public class FlexibleIntConverter : JsonConverter<int>
+{
+    public override int Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Number)
+        {
+            if (reader.TryGetInt32(out var i)) return i;
+            if (reader.TryGetDouble(out var d)) return (int)d;
+        }
+        else if (reader.TokenType == JsonTokenType.String)
+        {
+            var str = reader.GetString()?.Trim();
+            if (string.IsNullOrEmpty(str)) return 0;
+            if (int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out var i)) return i;
+            if (string.Equals(str, "SUCCESS", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(str, "PAID", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(str, "00", StringComparison.OrdinalIgnoreCase))
+                return 1;
+            if (string.Equals(str, "WAITING", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(str, "PENDING", StringComparison.OrdinalIgnoreCase))
+                return 0;
+            if (string.Equals(str, "CANCELLED", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(str, "FAILED", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(str, "EXPIRED", StringComparison.OrdinalIgnoreCase))
+                return 2;
+        }
+        else if (reader.TokenType == JsonTokenType.True) return 1;
+        else if (reader.TokenType == JsonTokenType.False) return 0;
+
+        return 0;
+    }
+
+    public override void Write(Utf8JsonWriter writer, int value, JsonSerializerOptions options) =>
+        writer.WriteNumberValue(value);
+}
+
+public class FlexibleNullableIntConverter : JsonConverter<int?>
+{
+    public override int? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType == JsonTokenType.Number)
+        {
+            if (reader.TryGetInt32(out var i)) return i;
+            if (reader.TryGetDouble(out var d)) return (int)d;
+            return null;
+        }
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var str = reader.GetString()?.Trim();
+            if (string.IsNullOrEmpty(str)) return null;
+            if (int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out var i)) return i;
+            if (string.Equals(str, "SUCCESS", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(str, "PAID", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(str, "00", StringComparison.OrdinalIgnoreCase))
+                return 1;
+            if (string.Equals(str, "WAITING", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(str, "PENDING", StringComparison.OrdinalIgnoreCase))
+                return 0;
+            if (string.Equals(str, "CANCELLED", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(str, "FAILED", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(str, "EXPIRED", StringComparison.OrdinalIgnoreCase))
+                return 2;
+        }
+        else if (reader.TokenType == JsonTokenType.True) return 1;
+        else if (reader.TokenType == JsonTokenType.False) return 0;
+
+        return null;
+    }
+
+    public override void Write(Utf8JsonWriter writer, int? value, JsonSerializerOptions options)
+    {
+        if (value.HasValue) writer.WriteNumberValue(value.Value);
+        else writer.WriteNullValue();
+    }
+}
+
+public class FlexibleNullableLongConverter : JsonConverter<long?>
+{
+    public override long? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType == JsonTokenType.Number)
+        {
+            if (reader.TryGetInt64(out var val)) return val;
+            if (reader.TryGetDouble(out var d)) return (long)d;
+            return null;
+        }
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var s = reader.GetString()?.Trim();
+            if (string.IsNullOrEmpty(s)) return null;
+            if (long.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var l)) return l;
+            if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+                return new DateTimeOffset(dt).ToUnixTimeSeconds();
+            return null;
+        }
+        return null;
+    }
+
+    public override void Write(Utf8JsonWriter writer, long? value, JsonSerializerOptions options)
+    {
+        if (value.HasValue) writer.WriteNumberValue(value.Value);
+        else writer.WriteNullValue();
+    }
+}
+
+public class FlexibleNullableDecimalConverter : JsonConverter<decimal?>
+{
+    public override decimal? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType == JsonTokenType.Number)
+        {
+            if (reader.TryGetDecimal(out var val)) return val;
+            if (reader.TryGetDouble(out var d)) return (decimal)d;
+            return null;
+        }
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var s = reader.GetString()?.Trim();
+            if (string.IsNullOrEmpty(s)) return null;
+            if (decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var val)) return val;
+            return null;
+        }
+        return null;
+    }
+
+    public override void Write(Utf8JsonWriter writer, decimal? value, JsonSerializerOptions options)
+    {
+        if (value.HasValue) writer.WriteNumberValue(value.Value);
+        else writer.WriteNullValue();
+    }
 }
 
 /// <summary>Các topic theo tài liệu. Chú ý: chỉ topic đồng bộ thiết bị bắt đầu bằng dấu "/".</summary>

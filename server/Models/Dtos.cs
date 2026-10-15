@@ -94,19 +94,21 @@ public class StatusResponseMessage
 {
     public string? ReferenceNumber { get; set; }
     public string? OrderId { get; set; }
-    public decimal Amount { get; set; }
+    public decimal? Amount { get; set; }
     public string? Content { get; set; }
     public string? TransType { get; set; }
     /// <summary>0: chờ thanh toán, 1: thành công, 2: đã huỷ</summary>
-    public int Status { get; set; }
-    public int Type { get; set; }
-    public long TimeCreated { get; set; }
-    /// <summary>Giây kể từ epoch.</summary>
-    public long TimePaid { get; set; }
+    public int? Status { get; set; }
+    public int? Type { get; set; }
+    public long? TimeCreated { get; set; }
+    /// <summary>Giây hoặc mili-giây kể từ epoch hoặc chuỗi thời gian.</summary>
+    public long? TimePaid { get; set; }
     public string? TerminalCode { get; set; }
     public string? Note { get; set; }
-    public int RefundCount { get; set; }
-    public decimal AmountRefunded { get; set; }
+    public int? RefundCount { get; set; }
+    public decimal? AmountRefunded { get; set; }
+    public string? Message { get; set; }
+    public string? Code { get; set; }
 }
 
 /// <summary>/vqr/handle-box</summary>

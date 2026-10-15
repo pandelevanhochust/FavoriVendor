@@ -29,6 +29,8 @@ public sealed class MqttMessageHandler
 
     public async Task HandleAsync(string topic, string json)
     {
+        _log.LogInformation("MQTT SUB [{Topic}]: {Json}", topic, json);
+
         var t = _terminal.Current.TerminalCode;
         if (!string.IsNullOrWhiteSpace(t))
         {
@@ -97,12 +99,23 @@ public sealed class MqttMessageHandler
         var m = JsonSerializer.Deserialize<StatusResponseMessage>(json, JsonOpts.Read);
         if (m == null) return;
 
-        _log.LogInformation("Tra cứu: order={Order} status={Status} ref={Ref}", m.OrderId, m.Status, m.ReferenceNumber);
+        _log.LogInformation("Tra cứu: order={Order} status={Status} ref={Ref} amount={Amount}", m.OrderId, m.Status, m.ReferenceNumber, m.Amount);
 
         if (m.Status != 1) return; // 0: còn chờ, 2: VietQR đã huỷ giao dịch: không có tiền để ghi nhận
 
-        var n = new PaymentNotification(m.ReferenceNumber, m.Amount, m.Content, m.OrderId,
-            m.TransType ?? "C", _terminal.Current.BankAccount, m.TimePaid * 1000, "STATUS");
+        var timePaidMs = (m.TimePaid ?? 0) > 0
+            ? ((m.TimePaid!.Value < 100_000_000_000L) ? m.TimePaid.Value * 1000 : m.TimePaid.Value)
+            : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        var n = new PaymentNotification(
+            m.ReferenceNumber,
+            m.Amount ?? 0,
+            m.Content,
+            m.OrderId,
+            m.TransType ?? "C",
+            _terminal.Current.BankAccount,
+            timePaidMs,
+            "STATUS");
         await ProcessAsync(n);
     }
 
