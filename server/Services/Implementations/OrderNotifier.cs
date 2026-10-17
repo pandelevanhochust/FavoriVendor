@@ -1,13 +1,14 @@
 using System.Collections.Concurrent;
+using VietQrKiosk.Server.Services.Interfaces;
 
-namespace VietQrKiosk.Server.Services;
+namespace VietQrKiosk.Server.Services.Implementations;
 
 /// <summary>
 /// Cho phép app Android "long-poll": request GET giữ kết nối tới khi đơn đổi trạng thái
 /// (hoặc hết thời gian chờ) thay vì hỏi liên tục. Trạng thái thật luôn nằm trong DB;
-/// đây chỉ là cơ chế đánh thức để phản hồi tức thì.
+/// đây chỉ là cơ chế đánh thức để phản hồi tức thì qua HTTP API Callback / Long-polling.
 /// </summary>
-public class OrderNotifier
+public class OrderNotifier : IOrderNotifier
 {
     private readonly ConcurrentDictionary<string, TaskCompletionSource> _waiters = new();
 

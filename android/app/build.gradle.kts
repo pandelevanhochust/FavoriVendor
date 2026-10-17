@@ -24,7 +24,11 @@ android {
 
         buildConfigField("String", "SERVER_BASE_URL", "\"${prop("kiosk.serverUrl", "https://your-server.example.com/")}\"")
         buildConfigField("String", "KIOSK_API_KEY", "\"${prop("kiosk.apiKey", "CHANGE_ME")}\"")
-        buildConfigField("String", "DEVICE_ID", "\"${prop("kiosk.deviceId", "kiosk-01")}\"")
+        buildConfigField("String", "DEVICE_ID", "\"${prop("kiosk.deviceId", "1")}\"")
+        // PIN vào màn Chẩn đoán (nhấn giữ thanh tiêu đề). ĐỔI trong local.properties: kiosk.adminPin=...
+        // Mức giá hiển thị ở màn 1 (VND, cách nhau bằng dấu phẩy). Máy nhận tiền VND6 chỉ nhận tờ >= 10.000.
+        buildConfigField("String", "DEMO_AMOUNTS", "\"${prop("kiosk.amounts", "80000,100000,200000")}\"")
+        buildConfigField("String", "ADMIN_PIN", "\"${prop("kiosk.adminPin", "246810")}\"")
     }
 
     buildFeatures {
@@ -42,6 +46,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.coordinatorlayout:coordinatorlayout:1.2.0")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
     implementation("androidx.lifecycle:lifecycle-viewmodel:2.7.0")
     implementation("androidx.lifecycle:lifecycle-livedata:2.7.0")
@@ -53,4 +58,7 @@ dependencies {
 
     // Vẽ QR từ chuỗi payload
     implementation("com.google.zxing:core:3.5.3")
+
+    // Giao tiếp USB-serial với đầu nhận tiền (CDC-ACM, CP21xx, CH34x, FTDI, PL2303)
+    implementation("com.github.mik3y:usb-serial-for-android:3.8.0")
 }

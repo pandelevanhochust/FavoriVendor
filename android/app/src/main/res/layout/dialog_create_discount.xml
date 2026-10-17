@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="Tạo Mã Giảm Giá Mới"
+            android:textColor="#850000"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="16dp"
+            android:gravity="center"
+            android:text="Mã sẽ được lưu vào SQLite và đồng bộ lên Server"
+            android:textColor="#757575"
+            android:textSize="13sp" />
+
+        <!-- 1. Mã Code -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Mã giảm giá (Code) *"
+            android:textColor="#333333"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etDiscountCode"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:background="@android:drawable/editbox_background_normal"
+            android:hint="Ví dụ: GIAM15, TET2026..."
+            android:inputType="textCapCharacters"
+            android:padding="10dp"
+            android:textColor="#850000"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <!-- 2. Mô tả -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Mô tả"
+            android:textColor="#333333"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etDiscountDesc"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:background="@android:drawable/editbox_background_normal"
+            android:hint="Ví dụ: Giảm 15% cho khách hàng mới"
+            android:inputType="text"
+            android:padding="10dp"
+            android:textSize="14sp" />
+
+        <!-- 3. Loại giảm giá -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Loại giảm giá *"
+            android:textColor="#333333"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/rgDiscountType"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rbPercent"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:checked="true"
+                android:text="Theo % (Phần trăm)"
+                android:textSize="14sp" />
+
+            <RadioButton
+                android:id="@+id/rbFixedAmount"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Cố định (VND)"
+                android:textSize="14sp" />
+
+        </RadioGroup>
+
+        <!-- 4. Giá trị giảm -->
+        <TextView
+            android:id="@+id/tvValueLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Tỷ lệ giảm (%) *"
+            android:textColor="#333333"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etDiscountValue"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:background="@android:drawable/editbox_background_normal"
+            android:hint="Nhập số % giảm (vd: 10, 20...)"
+            android:inputType="number"
+            android:padding="10dp"
+            android:textSize="14sp" />
+
+        <!-- 5. Đơn hàng tối thiểu -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Đơn hàng tối thiểu (VND)"
+            android:textColor="#333333"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etMinOrderAmount"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:background="@android:drawable/editbox_background_normal"
+            android:hint="0 hoặc để trống nếu không yêu cầu"
+            android:inputType="number"
+            android:padding="10dp"
+            android:textSize="14sp" />
+
+        <!-- 6. Giảm tối đa (cho %) -->
+        <TextView
+            android:id="@+id/tvMaxDiscountLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Số tiền giảm tối đa (VND) - Cho mã %"
+            android:textColor="#333333"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etMaxDiscountAmount"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:background="@android:drawable/editbox_background_normal"
+            android:hint="0 hoặc để trống nếu không giới hạn"
+            android:inputType="number"
+            android:padding="10dp"
+            android:textSize="14sp" />
+
+        <!-- 7. Hạn sử dụng -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Thời hạn sử dụng"
+            android:textColor="#333333"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <Spinner
+            android:id="@+id/spExpiryOption"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:background="@android:drawable/btn_dropdown" />
+
+        <!-- Nút bấm -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnCancelModal"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:text="Hủy"
+                android:textAllCaps="false"
+                android:textColor="#555555"
+                app:cornerRadius="8dp"
+                app:strokeColor="#CCCCCC" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSubmitDiscount"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="Tạo &amp; Đồng bộ"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                app:backgroundTint="#850000"
+                app:cornerRadius="8dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</ScrollView>

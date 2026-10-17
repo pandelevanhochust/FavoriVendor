@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/background_page4">
+
+    <!-- Giới hạn khung bo tròn trên ảnh background:
+         Top: Y = 317px / 1280px = 24.8%
+         Bottom: Y = 735px / 1280px = 57.4%
+         Center X: X = 407px / 800px = 50.9% (lệch sang phải 7px so với giữa 400px) -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage4FrameTop"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.250" />
+
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage4FrameBottom"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.572" />
+
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage4FrameX"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        app:layout_constraintGuide_percent="0.525" />
+
+    <!-- Khu vực trong khung: Chuyển khoản QR -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/layoutQrContent"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="visible"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage4FrameBottom"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage4FrameTop">
+
+        <!-- Dòng Mã đơn: đặt sát viền dưới của khung -->
+        <TextView
+            android:id="@+id/tvOrderId"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp"
+            android:textColor="#777777"
+            android:textSize="12sp"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintHorizontal_bias="0.525"
+            tools:text="Mã đơn: 12" />
+
+        <!-- Dòng Mã còn hiệu lực: đặt ngay trên Mã đơn, sát đáy khung -->
+        <TextView
+            android:id="@+id/tvCountdown"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="2dp"
+            android:textColor="#850000"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            app:layout_constraintBottom_toTopOf="@+id/tvOrderId"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintHorizontal_bias="0.525"
+            tools:text="Mã còn hiệu lực: 04:59" />
+
+        <!-- Ảnh QR phóng to (230dp x 230dp) và dịch sang phải (bias 0.525) cân đối hoàn hảo trong viền -->
+        <FrameLayout
+            android:layout_width="230dp"
+            android:layout_height="230dp"
+            app:layout_constraintBottom_toTopOf="@+id/tvCountdown"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintHorizontal_bias="0.525">
+
+            <ProgressBar
+                android:id="@+id/progressQr"
+                android:layout_width="54dp"
+                android:layout_height="54dp"
+                android:layout_gravity="center"
+                android:visibility="gone" />
+
+            <ImageView
+                android:id="@+id/ivQrCode"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="Mã VietQR"
+                android:scaleType="fitCenter" />
+        </FrameLayout>
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <!-- Khu vực trong khung: Tiền mặt -->
+    <LinearLayout
+        android:id="@+id/layoutCashContent"
+        android:layout_width="260dp"
+        android:layout_height="0dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage4FrameBottom"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage4FrameTop"
+        app:layout_constraintHorizontal_bias="0.525">
+
+        <TextView
+            android:id="@+id/tvCashPrompt"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="Vui lòng đưa tiền vào khe nhận tiền"
+            android:textColor="#850000"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvCashMessage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center"
+            android:textColor="#D32F2F"
+            android:textSize="13sp"
+            android:visibility="gone"
+            tools:text="Thông báo máy nhận tiền"
+            tools:visibility="visible" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:text="Máy không thối tiền.\nChỉ nhận tờ mệnh giá nhỏ hơn hoặc bằng số tiền còn thiếu."
+            android:textColor="#777777"
+            android:textSize="12sp" />
+
+    </LinearLayout>
+
+    <!-- Tổng tiền thanh toán: Box Y=817..894, Center Y = 855.5px / 1280px = 66.8% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage4Total"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.668" />
+
+    <TextView
+        android:id="@+id/tvPayTotalAmount"
+        android:layout_width="320dp"
+        android:layout_height="48dp"
+        android:gravity="center"
+        android:textColor="#212121"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage4Total"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage4Total"
+        tools:text="100.000 VND" />
+
+    <!-- Số tiền đã nạp: Box Y=988..1065, Center Y = 1026.5px / 1280px = 80.2% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage4Cash"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.802" />
+
+    <TextView
+        android:id="@+id/tvPayCashInserted"
+        android:layout_width="320dp"
+        android:layout_height="48dp"
+        android:gravity="center"
+        android:textColor="#2E7D32"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage4Cash"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage4Cash"
+        tools:text="0 VND" />
+
+    <!-- Nút Huỷ thanh toán: Y = 92.5% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage4Cancel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.925" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnCancelPayment"
+        android:layout_width="170dp"
+        android:layout_height="44dp"
+        android:background="@drawable/btn_maroon_pill_small"
+        android:text="Huỷ thanh toán"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage4Cancel"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage4Cancel" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

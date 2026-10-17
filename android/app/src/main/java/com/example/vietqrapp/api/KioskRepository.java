@@ -9,6 +9,7 @@ import com.example.vietqrapp.model.OrderResponse;
 import com.google.gson.Gson;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
@@ -61,7 +62,11 @@ public class KioskRepository {
     }
 
     public Call<OrderResponse> createOrder(long amount, ResultCallback<OrderResponse> cb) {
-        return run(api.createOrder(new CreateOrderRequest(amount, BuildConfig.DEVICE_ID)), cb);
+        return createOrder(amount, null, cb);
+    }
+
+    public Call<OrderResponse> createOrder(long amount, String discountCode, ResultCallback<OrderResponse> cb) {
+        return run(api.createOrder(new CreateOrderRequest(amount, BuildConfig.DEVICE_ID, discountCode)), cb);
     }
 
     public Call<OrderResponse> pollOrder(String orderId, int waitSeconds, ResultCallback<OrderResponse> cb) {
@@ -70,6 +75,25 @@ public class KioskRepository {
 
     public Call<OrderResponse> cancelOrder(String orderId, ResultCallback<OrderResponse> cb) {
         return run(api.cancelOrder(orderId), cb);
+    }
+
+    public Call<com.example.vietqrapp.model.ValidateDiscountResponse> validateDiscount(String code, long amount, ResultCallback<com.example.vietqrapp.model.ValidateDiscountResponse> cb) {
+        return run(api.validateDiscount(new com.example.vietqrapp.model.ValidateDiscountRequest(code, amount)), cb);
+    }
+
+    public Call<com.example.vietqrapp.model.DiscountSummaryResponse> createDiscount(
+            com.example.vietqrapp.model.CreateDiscountRequest req,
+            ResultCallback<com.example.vietqrapp.model.DiscountSummaryResponse> cb) {
+        return run(api.createDiscount(req), cb);
+    }
+
+    public Call<List<com.example.vietqrapp.model.DiscountSummaryResponse>> getActiveDiscounts(
+            ResultCallback<List<com.example.vietqrapp.model.DiscountSummaryResponse>> cb) {
+        return run(api.getActiveDiscounts(), cb);
+    }
+
+    public Call<com.example.vietqrapp.model.BankTransactionResponse> getTransaction(String orderId, ResultCallback<com.example.vietqrapp.model.BankTransactionResponse> cb) {
+        return run(api.getTransactionByOrderId(orderId), cb);
     }
 
     private <T> Call<T> run(Call<T> call, final ResultCallback<T> cb) {
