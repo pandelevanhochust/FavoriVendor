@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using VietQrKiosk.Server.Infra.Data;
 
 namespace VietQrKiosk.Server.Controllers;
 
@@ -6,7 +7,22 @@ namespace VietQrKiosk.Server.Controllers;
 [Route("healthz")]
 public class HealthController : ControllerBase
 {
-    [HttpGet]
-    public IActionResult Get() => Ok(new { ok = true });
-}
+    private readonly AppDbContext _db;
 
+    public HealthController(AppDbContext db)
+    {
+        _db = db;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> Get(CancellationToken ct)
+    {
+        var dbCanConnect = await _db.Database.CanConnectAsync(ct);
+        return Ok(new
+        {
+            ok = true,
+            database = dbCanConnect ? "Connected" : "Disconnected",
+            timestamp = DateTime.UtcNow
+        });
+    }
+}

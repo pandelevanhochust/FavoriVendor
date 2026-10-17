@@ -23,8 +23,9 @@ nên mất máy không lộ tài khoản.
 
 | Thư mục | Nội dung |
 |---|---|
-| `server/` | ASP.NET Core 8 (minimal API) + EF Core SQLite |
+| `server/` | C# .NET 10 Web API thiết kế Clean Architecture (Entity / Service / Controller / Infra) + PostgreSQL |
 | `android/` | App Android (Java, View + ViewBinding), build bằng Android Studio |
+| `tests/` | Bộ kiểm thử tự động xUnit cho Services, Discount, Idempotency & DB |
 
 ---
 
@@ -57,19 +58,42 @@ Hai nhóm này khác nhau, đừng dùng chung.
 
 ```bash
 cp .env.example .env      # điền giá trị thật
+# Khởi động PostgreSQL và Backend server bằng Docker Compose:
 docker compose up -d --build
 ```
 
-Container chỉ lắng nghe `127.0.0.1:8080`. Đặt reverse proxy HTTPS phía trước, ví dụ Caddy:
+Container Backend chỉ lắng nghe `127.0.0.1:8080`, còn PostgreSQL mở cổng `5432` để dễ dàng kết nối kiểm tra dữ liệu local bằng DBeaver/pgAdmin hoặc chạy trực tiếp backend bằng `dotnet run`.
+Kiểm tra sức khoẻ server & kết nối DB: `curl http://localhost:8080/healthz` → `{"ok":true,"database":"Connected",...}`.
+Tài liệu tương tác API Scalar: truy cập `http://localhost:8080/scalar/v1` (hoặc `http://localhost:5000/scalar/v1` khi chạy `dotnet run`).
+Lịch sử giao dịch lưu tự động trong PostgreSQL tại bảng `bank_transactions`. Có thể xem nhanh qua API: `GET /kiosk/transactions`.
 
-```
-kiosk.example.com {
-    reverse_proxy 127.0.0.1:8080
-}
+---
+
+## 2. Tính năng Mã Giảm Giá (Discount Codes)
+
+Hệ thống hỗ trợ giảm giá theo % (`Percentage`) hoặc số tiền cố định (`FixedAmount`), có cấu hình đơn tối thiểu, số tiền giảm tối đa và giới hạn lượt sử dụng.
+
+Khi khởi động, hệ thống tự động khởi tạo sẵn các mã mẫu:
+- `GIAM10`: Giảm 10% tối đa 50,000 VND (đơn tối thiểu 10,000 VND)
+- `GIAM20K`: Giảm trực tiếp 20,000 VND (đơn tối thiểu 50,000 VND)
+- `VIP50`: Giảm 50% tối đa 100,000 VND (đơn tối thiểu 20,000 VND)
+
+### API kiểm tra mã giảm giá trước khi thanh toán:
+```bash
+curl -s -X POST http://localhost:8080/kiosk/discounts/validate \
+  -H "X-Api-Key: <Kiosk:ApiKey>" -H "Content-Type: application/json" \
+  -d '{"code":"GIAM10","amount":50000}'
+# → {"isValid":true,"message":"Mã giảm giá hợp lệ.","code":"GIAM10","originalAmount":50000,"discountAmount":5000,"finalAmount":45000}
 ```
 
-Kiểm tra: `curl https://kiosk.example.com/healthz` → `{"ok":true}`.
-Dữ liệu SQLite nằm ở `./data/kiosk.db` — hãy sao lưu thư mục này.
+### Tạo đơn hàng kèm mã giảm giá:
+```bash
+curl -s -X POST http://localhost:8080/kiosk/orders \
+  -H "X-Api-Key: <Kiosk:ApiKey>" -H "Content-Type: application/json" \
+  -d '{"amount":50000,"deviceId":"kiosk-01","discountCode":"GIAM10"}'
+# → Server tính số tiền thực tế (finalAmount = 45000) và sinh mã VietQR với đúng 45,000 VND.
+# Khi VietQR gửi callback xác nhận 45,000 VND, đơn đổi thành PAID và tăng lượt sử dụng mã.
+```
 
 ---
 

@@ -27,8 +27,7 @@ artifacts/
 *.db
 *.db-shm
 *.db-wal
-server/[Dd]ata/*.db*
-server/data/
+server/data/*.db*
 
 # =====================================================================
 # Android / Gradle / IntelliJ IDEA

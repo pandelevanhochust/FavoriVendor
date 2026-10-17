@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 using VietQrKiosk.Server.Config;
 using VietQrKiosk.Server.Models;
 
-namespace VietQrKiosk.Server.Services;
+namespace VietQrKiosk.Server.Infra.External;
 
 public class VietQrException : Exception
 {
@@ -14,7 +14,7 @@ public class VietQrException : Exception
 }
 
 /// <summary>Gọi API của VietQR: Get Token (cache ~5 phút) và Generate QR.</summary>
-public class VietQrClient
+public class VietQrClient : IVietQrClient
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

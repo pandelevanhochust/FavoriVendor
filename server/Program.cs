@@ -3,15 +3,20 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Scalar.AspNetCore;
 using VietQrKiosk.Server.Config;
 using VietQrKiosk.Server.Controllers;
-using VietQrKiosk.Server.Data;
+using VietQrKiosk.Server.Infra.Data;
+using VietQrKiosk.Server.Infra.External;
+using VietQrKiosk.Server.Infra.Repositories;
 using VietQrKiosk.Server.Models;
 using VietQrKiosk.Server.Services;
+using VietQrKiosk.Server.Services.Implementations;
+using VietQrKiosk.Server.Services.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ------------------------------------------------------------------ cấu hình
+// ------------------------------------------------------------------ Cấu hình
 builder.Services.Configure<VietQrOptions>(builder.Configuration.GetSection("VietQr"));
 builder.Services.Configure<CallbackOptions>(builder.Configuration.GetSection("Callback"));
 builder.Services.Configure<KioskOptions>(builder.Configuration.GetSection("Kiosk"));
@@ -20,7 +25,7 @@ var vietQrCfg = builder.Configuration.GetSection("VietQr").Get<VietQrOptions>() 
 var callbackCfg = builder.Configuration.GetSection("Callback").Get<CallbackOptions>() ?? new CallbackOptions();
 var kioskCfg = builder.Configuration.GetSection("Kiosk").Get<KioskOptions>() ?? new KioskOptions();
 
-// Dừng ngay khi thiếu cấu hình bí mật thay vì chạy với giá trị rỗng (không an toàn).
+// Kiểm tra cấu hình bắt buộc
 Helpers.Require(!string.IsNullOrWhiteSpace(vietQrCfg.Username) && !string.IsNullOrWhiteSpace(vietQrCfg.Password),
     "VietQr:Username / VietQr:Password (tài khoản VietQR cấp)");
 Helpers.Require(!string.IsNullOrWhiteSpace(vietQrCfg.BankAccount) && !string.IsNullOrWhiteSpace(vietQrCfg.AccountName),
@@ -32,14 +37,43 @@ Helpers.Require(!string.IsNullOrWhiteSpace(callbackCfg.BasePath), "Callback:Base
 Helpers.Require(kioskCfg.ApiKey.Length >= 16, "Kiosk:ApiKey (tối thiểu 16 ký tự)");
 Helpers.Require(kioskCfg.OrderTtlSeconds is >= 60 and <= 900, "Kiosk:OrderTtlSeconds (60..900)");
 
-// ------------------------------------------------------------------ dịch vụ
-Directory.CreateDirectory("data");
-builder.Services.AddDbContext<AppDb>(o =>
-    o.UseSqlite(builder.Configuration.GetConnectionString("Default") ?? "Data Source=data/kiosk.db"));
+// ------------------------------------------------------------------ Infra: Database (PostgreSQL / SQLite fallback)
+var defaultConnection = builder.Configuration.GetConnectionString("Default");
+builder.Services.AddDbContext<AppDbContext>(o =>
+{
+    if (string.IsNullOrWhiteSpace(defaultConnection) || defaultConnection.Contains(".db") || defaultConnection.Contains("Data Source"))
+    {
+        Directory.CreateDirectory("data");
+        o.UseSqlite(defaultConnection ?? "Data Source=data/kiosk.db");
+    }
+    else
+    {
+        o.UseNpgsql(defaultConnection);
+    }
+});
 
+// ------------------------------------------------------------------ Infra: Repositories & External
+builder.Services.AddScoped<IOrderRepository, OrderRepository>();
+builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
+builder.Services.AddScoped<IDiscountRepository, DiscountRepository>();
+
+builder.Services.AddHttpClient("vietqr", c =>
+{
+    c.BaseAddress = new Uri(vietQrCfg.BaseUrl.TrimEnd('/') + "/");
+    c.Timeout = TimeSpan.FromSeconds(15);
+});
+builder.Services.AddSingleton<IVietQrClient, VietQrClient>();
+
+// ------------------------------------------------------------------ Services: Business Logic
+builder.Services.AddSingleton<IOrderNotifier, OrderNotifier>();
+builder.Services.AddScoped<IDiscountService, DiscountService>();
+builder.Services.AddScoped<IOrderService, OrderService>();
+builder.Services.AddScoped<IPaymentProcessor, PaymentProcessor>();
+builder.Services.AddHostedService<OrderExpiryService>();
+
+// ------------------------------------------------------------------ Presentation: Controllers & Serialization
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
-    // VietQR có thể gửi số dưới dạng chuỗi ("amount":"10000")
     o.SerializerOptions.NumberHandling = JsonNumberHandling.AllowReadingFromString;
 });
 
@@ -51,21 +85,13 @@ builder.Services
     })
     .AddJsonOptions(o =>
     {
-        // VietQR có thể gửi số dưới dạng chuỗi ("amount":"10000")
         o.JsonSerializerOptions.NumberHandling = JsonNumberHandling.AllowReadingFromString;
     });
 
-builder.Services.AddHttpClient("vietqr", c =>
-{
-    c.BaseAddress = new Uri(vietQrCfg.BaseUrl.TrimEnd('/') + "/");
-    c.Timeout = TimeSpan.FromSeconds(15);
-});
-builder.Services.AddSingleton<VietQrClient>();
-builder.Services.AddSingleton<OrderNotifier>();
-builder.Services.AddScoped<PaymentProcessor>();
-builder.Services.AddHostedService<OrderExpiryService>();
+builder.Services.AddOpenApi();
 
-// JWT chỉ dùng cho chiều VietQR -> server (Transaction Sync).
+// ------------------------------------------------------------------ Authentication (VietQR API Callback)
+// JWT chỉ dùng cho chiều VietQR -> server (Transaction Sync). Không dùng MQTT.
 builder.Services
     .AddAuthentication()
     .AddJwtBearer("VietQrCallback", o =>
@@ -94,11 +120,20 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+// Khởi tạo và seed dữ liệu khởi tạo
 using (var scope = app.Services.CreateScope())
 {
-    // Demo dùng EnsureCreated. Khi cần đổi schema ở production hãy chuyển sang EF Migrations.
-    scope.ServiceProvider.GetRequiredService<AppDb>().Database.EnsureCreated();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await DbInitializer.InitializeAsync(db, app.Logger);
 }
+
+// Cấu hình OpenAPI & Scalar API Reference
+app.MapOpenApi();
+app.MapScalarApiReference(options =>
+{
+    options.WithTitle("VietQR Kiosk API");
+    options.WithTheme(ScalarTheme.Mars);
+});
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -106,4 +141,3 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
-
