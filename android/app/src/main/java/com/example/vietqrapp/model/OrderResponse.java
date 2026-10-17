@@ -5,8 +5,12 @@ public class OrderResponse {
     public String orderId;
     public String status;
     public long amount;
+    public long originalAmount;
+    public long discountAmount;
+    public String discountCode;
     public String qrCode;
     public String content;
     public int expiresInSeconds;
     public String paidAt;
+    public BankTransactionResponse transaction;
 }

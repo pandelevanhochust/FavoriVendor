@@ -1,4 +1,3 @@
-using Microsoft.EntityFrameworkCore;
 using VietQrKiosk.Server.Entities;
 using VietQrKiosk.Server.Infra.Repositories;
 using VietQrKiosk.Server.Services.Interfaces;
@@ -47,15 +46,7 @@ public class OrderExpiryService : BackgroundService
 
         foreach (var o in expired) o.Status = OrderStatus.Expired;
 
-        try
-        {
-            await orderRepo.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            // Có đơn vừa được thanh toán hoặc huỷ lúc này: bỏ qua, vòng sau quét tiếp
-        }
-
+        await orderRepo.SaveChangesAsync(ct);
         foreach (var o in expired) _notifier.Notify(o.OrderId);
         _log.LogInformation("Đã quét {Count} đơn hết hạn", expired.Count);
     }

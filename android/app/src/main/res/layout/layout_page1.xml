@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/background_page1">
+
+    <!-- Tiếng Việt: Y = 702px / 1280px = 54.8% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage1Vi"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.548" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnLangVi"
+        android:layout_width="230dp"
+        android:layout_height="56dp"
+        android:background="@drawable/btn_maroon_pill"
+        android:text="Tiếng Việt"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage1Vi"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage1Vi" />
+
+    <!-- English: Y = 814px / 1280px = 63.6% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage1En"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.636" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnLangEn"
+        android:layout_width="230dp"
+        android:layout_height="56dp"
+        android:background="@drawable/btn_maroon_pill"
+        android:text="English"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage1En"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage1En" />
+
+    <!-- Tiếp tục: Y = 986px / 1280px = 77.0% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage1Next"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.770" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnPage1Next"
+        android:layout_width="160dp"
+        android:layout_height="44dp"
+        android:background="@drawable/btn_maroon_pill_small"
+        android:text="Tiếp tục"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage1Next"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage1Next" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

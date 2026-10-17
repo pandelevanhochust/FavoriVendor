@@ -99,4 +99,90 @@ public class DiscountService : IDiscountService
             EndDateUtc: d.EndDateUtc
         )).ToList();
     }
+
+    public async Task<(bool Success, string? ErrorMessage, DiscountSummaryDto? Discount)> CreateDiscountAsync(
+        CreateDiscountRequest request, CancellationToken ct = default)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Code))
+        {
+            return (false, "Mã giảm giá không được để trống.", null);
+        }
+
+        var normalizedCode = request.Code.Trim().ToUpperInvariant();
+        var existing = await _discountRepo.GetByCodeAsync(normalizedCode, asNoTracking: true, ct);
+        if (existing != null)
+        {
+            return (false, $"Mã giảm giá '{normalizedCode}' đã tồn tại trên hệ thống.", null);
+        }
+
+        DiscountType discountType;
+        var typeStr = request.Type?.Trim().ToUpperInvariant() ?? "";
+        if (typeStr == "PERCENT" || typeStr == "PERCENTAGE")
+        {
+            discountType = DiscountType.Percentage;
+            if (request.Value <= 0 || request.Value > 100)
+            {
+                return (false, "Tỷ lệ giảm giá (%) phải nằm trong khoảng từ 1% đến 100%.", null);
+            }
+        }
+        else if (typeStr == "FIXED" || typeStr == "FIXED_AMOUNT" || typeStr == "FIXEDAMOUNT")
+        {
+            discountType = DiscountType.FixedAmount;
+            if (request.Value <= 0)
+            {
+                return (false, "Số tiền giảm giá cố định phải lớn hơn 0 VND.", null);
+            }
+        }
+        else
+        {
+            return (false, "Loại giảm giá không hợp lệ (hỗ trợ 'PERCENT' hoặc 'FIXED_AMOUNT').", null);
+        }
+
+        DateTime? endDate = null;
+        if (request.ExpiresAtMs.HasValue && request.ExpiresAtMs.Value > 0)
+        {
+            endDate = DateTimeOffset.FromUnixTimeMilliseconds(request.ExpiresAtMs.Value).UtcDateTime;
+        }
+        else if (request.EndDateUtc.HasValue)
+        {
+            endDate = request.EndDateUtc.Value;
+        }
+
+        if (endDate.HasValue && endDate.Value <= DateTime.UtcNow)
+        {
+            return (false, "Thời gian hết hạn phải ở tương lai.", null);
+        }
+
+        var discount = new DiscountCode
+        {
+            Code = normalizedCode,
+            Description = request.Description?.Trim() ?? string.Empty,
+            Type = discountType,
+            Value = request.Value,
+            MinOrderAmount = request.MinOrderAmount > 0 ? request.MinOrderAmount : null,
+            MaxDiscountAmount = request.MaxDiscountAmount > 0 ? request.MaxDiscountAmount : null,
+            UsageLimit = request.UsageLimit > 0 ? request.UsageLimit : null,
+            UsedCount = 0,
+            IsActive = true,
+            CreatedAtUtc = DateTime.UtcNow,
+            EndDateUtc = endDate
+        };
+
+        await _discountRepo.AddAsync(discount, ct);
+        await _discountRepo.SaveChangesAsync(ct);
+
+        _logger.LogInformation("Đã tạo mã giảm giá mới: {Code} ({Type}, {Value})", discount.Code, discount.Type, discount.Value);
+
+        var dto = new DiscountSummaryDto(
+            Code: discount.Code,
+            Description: discount.Description,
+            Type: discount.Type.ToString(),
+            Value: discount.Value,
+            MinOrderAmount: discount.MinOrderAmount,
+            MaxDiscountAmount: discount.MaxDiscountAmount,
+            EndDateUtc: discount.EndDateUtc
+        );
+
+        return (true, null, dto);
+    }
 }

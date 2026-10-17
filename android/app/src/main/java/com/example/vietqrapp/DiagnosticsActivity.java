@@ -3,6 +3,7 @@ package com.example.vietqrapp;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.widget.ArrayAdapter;
 import android.widget.Toast;
@@ -36,6 +37,16 @@ public class DiagnosticsActivity extends AppCompatActivity implements BillAccept
         b = ActivityDiagnosticsBinding.inflate(getLayoutInflater());
         setContentView(b.getRoot());
         acceptor = KioskApp.get().billAcceptor();
+
+        // Mở màn hình Lịch sử giao dịch (SQLite)
+        b.btnTransactions.setOnClickListener(v -> {
+            startActivity(new Intent(this, TransactionsActivity.class));
+        });
+
+        // Mở màn hình Quản lý & Tạo mã giảm giá (SQLite & Server)
+        b.btnDiscounts.setOnClickListener(v -> {
+            startActivity(new Intent(this, DiscountsActivity.class));
+        });
 
         b.spParity.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
                 new String[]{"Parity: None", "Parity: Even", "Parity: Odd"}));

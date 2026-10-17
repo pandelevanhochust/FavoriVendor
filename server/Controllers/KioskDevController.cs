@@ -11,7 +11,7 @@ namespace VietQrKiosk.Server.Controllers;
 /// Chỉ môi trường Development: giả lập khách đã chuyển khoản để thử app mà không cần VietQR.
 /// </summary>
 [ApiController]
-[Route("kiosk/dev")]
+[Route("vendor/dev")]
 [KioskApiKey]
 public class KioskDevController : ControllerBase
 {

@@ -1,12 +1,10 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using VietQrKiosk.Server.Config;
 using VietQrKiosk.Server.Controllers;
-using VietQrKiosk.Server.Infra.Data;
 using VietQrKiosk.Server.Infra.External;
 using VietQrKiosk.Server.Infra.Repositories;
 using VietQrKiosk.Server.Models;
@@ -63,25 +61,10 @@ Helpers.Require(!string.IsNullOrWhiteSpace(callbackCfg.BasePath), "Callback:Base
 Helpers.Require(kioskCfg.ApiKey.Length >= 16, "Kiosk:ApiKey (tối thiểu 16 ký tự)");
 Helpers.Require(kioskCfg.OrderTtlSeconds is >= 60 and <= 900, "Kiosk:OrderTtlSeconds (60..900)");
 
-// ------------------------------------------------------------------ Infra: Database (PostgreSQL / SQLite fallback)
-var defaultConnection = builder.Configuration.GetConnectionString("Default");
-builder.Services.AddDbContext<AppDbContext>(o =>
-{
-    if (string.IsNullOrWhiteSpace(defaultConnection) || defaultConnection.Contains(".db") || defaultConnection.Contains("Data Source"))
-    {
-        Directory.CreateDirectory("data");
-        o.UseSqlite(defaultConnection ?? "Data Source=data/kiosk.db");
-    }
-    else
-    {
-        o.UseNpgsql(defaultConnection);
-    }
-});
-
-// ------------------------------------------------------------------ Infra: Repositories & External
-builder.Services.AddScoped<IOrderRepository, OrderRepository>();
-builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
-builder.Services.AddScoped<IDiscountRepository, DiscountRepository>();
+// ------------------------------------------------------------------ Infra: In-Memory Repositories (Uỷ thác CSDL cho máy Android, server hoạt động stateless/in-memory)
+builder.Services.AddSingleton<IOrderRepository, InMemoryOrderRepository>();
+builder.Services.AddSingleton<ITransactionRepository, InMemoryTransactionRepository>();
+builder.Services.AddSingleton<IDiscountRepository, InMemoryDiscountRepository>();
 
 builder.Services.AddHttpClient("vietqr", c =>
 {
@@ -145,13 +128,6 @@ builder.Services
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
-
-// Khởi tạo và seed dữ liệu khởi tạo
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await DbInitializer.InitializeAsync(db, app.Logger);
-}
 
 // Cấu hình OpenAPI & Scalar API Reference
 app.MapOpenApi();

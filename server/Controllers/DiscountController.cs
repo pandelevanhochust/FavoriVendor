@@ -8,7 +8,7 @@ namespace VietQrKiosk.Server.Controllers;
 /// API mã giảm giá dành cho Kiosk.
 /// </summary>
 [ApiController]
-[Route("kiosk/discounts")]
+[Route("vendor/discounts")]
 [KioskApiKey]
 public class DiscountController : ControllerBase
 {
@@ -33,5 +33,18 @@ public class DiscountController : ControllerBase
     {
         var discounts = await _discountService.GetActiveDiscountsAsync(ct);
         return Ok(discounts);
+    }
+
+    /// <summary>Tạo mã giảm giá mới.</summary>
+    [HttpPost]
+    [HttpPost("create")]
+    public async Task<IActionResult> CreateDiscount([FromBody] CreateDiscountRequest req, CancellationToken ct)
+    {
+        var (success, error, discount) = await _discountService.CreateDiscountAsync(req, ct);
+        if (!success)
+        {
+            return BadRequest(new ErrorBody(error ?? "Không thể tạo mã giảm giá"));
+        }
+        return Ok(discount);
     }
 }

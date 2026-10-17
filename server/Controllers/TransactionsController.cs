@@ -5,10 +5,10 @@ using VietQrKiosk.Server.Models;
 namespace VietQrKiosk.Server.Controllers;
 
 /// <summary>
-/// API xem lịch sử giao dịch đã lưu trong PostgreSQL.
+/// API xem lịch sử giao dịch (In-memory buffer trên server để app Android gọi lấy về).
 /// </summary>
 [ApiController]
-[Route("kiosk/transactions")]
+[Route("vendor/transactions")]
 [KioskApiKey]
 public class TransactionsController : ControllerBase
 {
@@ -19,7 +19,7 @@ public class TransactionsController : ControllerBase
         _txnRepo = txnRepo;
     }
 
-    /// <summary>Lấy danh sách các giao dịch gần nhất lưu trong Postgres.</summary>
+    /// <summary>Lấy danh sách các giao dịch gần nhất trên Server.</summary>
     [HttpGet]
     public async Task<IActionResult> GetRecentTransactions([FromQuery] int limit = 50, CancellationToken ct = default)
     {
@@ -42,5 +42,28 @@ public class TransactionsController : ControllerBase
         ));
 
         return Ok(dtos);
+    }
+
+    /// <summary>Lấy chi tiết giao dịch ngân hàng theo orderId.</summary>
+    [HttpGet("{orderId}")]
+    public async Task<IActionResult> GetTransactionByOrderId(string orderId, CancellationToken ct = default)
+    {
+        var txn = await _txnRepo.GetByOrderIdAsync(orderId, ct);
+        if (txn == null) return NotFound(new ErrorBody("Không tìm thấy giao dịch cho đơn hàng này"));
+
+        return Ok(new BankTransactionDto(
+            Id: txn.Id,
+            TransactionId: txn.TransactionId,
+            RefTransactionId: txn.RefTransactionId,
+            ReferenceNumber: txn.ReferenceNumber,
+            Amount: txn.Amount,
+            Content: txn.Content,
+            BankAccount: txn.BankAccount,
+            TransType: txn.TransType,
+            OrderId: txn.OrderId,
+            Result: txn.Result,
+            TransactionTimeMs: txn.TransactionTimeMs,
+            ReceivedAt: txn.ReceivedAt
+        ));
     }
 }

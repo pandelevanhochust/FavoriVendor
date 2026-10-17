@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/background_page3">
+
+    <!-- Ô nhập mã giảm giá: Box Y=333..396, Center Y = 364.5px / 1280px = 28.5% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage3Discount"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.285" />
+
+    <EditText
+        android:id="@+id/etDiscountCode"
+        android:layout_width="340dp"
+        android:layout_height="48dp"
+        android:background="@android:color/transparent"
+        android:gravity="center"
+        android:hint="Nhập mã giảm giá"
+        android:imeOptions="actionDone"
+        android:inputType="textCapCharacters|textNoSuggestions"
+        android:padding="0dp"
+        android:singleLine="true"
+        android:textAllCaps="true"
+        android:textColor="#212121"
+        android:textColorHint="#A0988A"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage3Discount"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage3Discount" />
+
+    <!-- Nút Áp dụng: Y = 446px / 1280px = 34.8% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage3Apply"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.348" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnApplyDiscount"
+        android:layout_width="120dp"
+        android:layout_height="40dp"
+        android:background="@drawable/btn_maroon_pill_small"
+        android:text="Áp dụng"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage3Apply"
+        app:layout_constraintEnd_toEndOf="@+id/etDiscountCode"
+        app:layout_constraintTop_toTopOf="@+id/guidePage3Apply" />
+
+    <TextView
+        android:id="@+id/tvDiscountMessage"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="8dp"
+        android:gravity="center_vertical|end"
+        android:textColor="#850000"
+        android:textSize="13sp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage3Apply"
+        app:layout_constraintEnd_toStartOf="@+id/btnApplyDiscount"
+        app:layout_constraintStart_toStartOf="@+id/etDiscountCode"
+        app:layout_constraintTop_toTopOf="@+id/guidePage3Apply"
+        tools:text="Áp dụng mã GIAM10 (-10.000 VND)"
+        tools:visibility="visible" />
+
+    <!-- Bộ chọn số lượng: Y=667..709, Center Y = 688px / 1280px = 53.8% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage3Qty"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.538" />
+
+    <!-- Guideline tâm nút Trừ [-]: X = 209.5px / 800px = 26.2% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage3MinusX"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        app:layout_constraintGuide_percent="0.262" />
+
+    <!-- Guideline tâm nút Cộng [+]: X = 599.5px / 800px = 75.0% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage3PlusX"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        app:layout_constraintGuide_percent="0.750" />
+
+    <!-- Nút Trừ số lượng [-]: nằm chính xác trên nút [-] của background -->
+    <View
+        android:id="@+id/btnQtyMinus"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:background="@drawable/btn_transparent_ripple"
+        android:clickable="true"
+        android:focusable="true"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage3Qty"
+        app:layout_constraintEnd_toEndOf="@+id/guidePage3MinusX"
+        app:layout_constraintStart_toStartOf="@+id/guidePage3MinusX"
+        app:layout_constraintTop_toTopOf="@+id/guidePage3Qty" />
+
+    <!-- Nút Cộng số lượng [+]: nằm chính xác trên nút [+] của background -->
+    <View
+        android:id="@+id/btnQtyPlus"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:background="@drawable/btn_transparent_ripple"
+        android:clickable="true"
+        android:focusable="true"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage3Qty"
+        app:layout_constraintEnd_toEndOf="@+id/guidePage3PlusX"
+        app:layout_constraintStart_toStartOf="@+id/guidePage3PlusX"
+        app:layout_constraintTop_toTopOf="@+id/guidePage3Qty" />
+
+    <!-- Ô hiển thị số lượng: nằm đúng giữa khung số lượng giữa nút trừ và cộng -->
+    <TextView
+        android:id="@+id/tvQtyValue"
+        android:layout_width="0dp"
+        android:layout_height="48dp"
+        android:gravity="center"
+        android:text="1"
+        android:textColor="#212121"
+        android:textSize="26sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage3Qty"
+        app:layout_constraintEnd_toStartOf="@+id/btnQtyPlus"
+        app:layout_constraintStart_toEndOf="@+id/btnQtyMinus"
+        app:layout_constraintTop_toTopOf="@+id/guidePage3Qty" />
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage3Total"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.677" />
+
+    <TextView
+        android:id="@+id/tvTotalPrice"
+        android:layout_width="320dp"
+        android:layout_height="48dp"
+        android:gravity="center"
+        android:textColor="#212121"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage3Total"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage3Total"
+        tools:text="100.000 VND" />
+
+    <!-- Nút Tiếp tục: Y = 1021.5px / 1280px = 79.8% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage3Next"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.798" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnPage3Next"
+        android:layout_width="200dp"
+        android:layout_height="54dp"
+        android:background="@drawable/btn_maroon_pill"
+        android:text="Tiếp tục"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage3Next"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage3Next" />
+
+    <!-- Nút Quay về: Y = 1145px / 1280px = 89.5% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage3Back"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.895" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnPage3Back"
+        android:layout_width="200dp"
+        android:layout_height="54dp"
+        android:background="@drawable/btn_maroon_pill"
+        android:text="Quay về"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage3Back"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage3Back" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

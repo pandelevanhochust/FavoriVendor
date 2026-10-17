@@ -16,7 +16,11 @@ import com.example.vietqrapp.KioskApp;
 import com.example.vietqrapp.api.KioskRepository;
 import com.example.vietqrapp.api.KioskRepository.ResultCallback;
 import com.example.vietqrapp.cash.BillAcceptorManager;
+import com.example.vietqrapp.db.KioskDbHelper;
+import com.example.vietqrapp.db.LocalDiscount;
+import com.example.vietqrapp.db.LocalTransaction;
 import com.example.vietqrapp.model.OrderResponse;
+import com.example.vietqrapp.model.ValidateDiscountResponse;
 import com.example.vietqrapp.ui.QrCodeGenerator;
 
 import java.text.NumberFormat;
@@ -55,6 +59,7 @@ public class PaymentViewModel extends ViewModel {
     private final KioskRepository repository;
     private final BillAcceptorManager acceptor;
     private final SharedPreferences cashPrefs;
+    private final KioskDbHelper dbHelper;
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private final MutableLiveData<PaymentUiState> uiState = new MutableLiveData<>(new PaymentUiState());
@@ -164,6 +169,7 @@ public class PaymentViewModel extends ViewModel {
         this.repository = repository;
         this.acceptor = acceptor;
         this.cashPrefs = KioskApp.get().getSharedPreferences("cash_session", Context.MODE_PRIVATE);
+        this.dbHelper = KioskDbHelper.getInstance(KioskApp.get());
 
         PaymentUiState init = new PaymentUiState();
         init.setCashReady(acceptor.isReady());
@@ -205,20 +211,190 @@ public class PaymentViewModel extends ViewModel {
         return NumberFormat.getInstance(new Locale("vi", "VN")).format(vnd) + " VND";
     }
 
-    // ------------------------------------------------------------------ chọn số tiền / phương thức
+    // ------------------------------------------------------------------ chọn số tiền / số lượng & giảm giá / phương thức
 
-    public void selectAmount(long amount) {
-        if (current().getStatus() != PaymentUiState.Status.HOME) return;
+    public void goToPage2() {
         PaymentUiState s = current().copy();
+        s.setStatus(PaymentUiState.Status.HOME);
+        if (amounts != null && !amounts.isEmpty()) {
+            s.setSelectedPackageIndex(0);
+            s.setUnitPrice(amounts.get(0));
+            s.setSelectedAmount(amounts.get(0));
+        }
+        s.setMessage(null);
+        uiState.setValue(s);
+    }
+
+    public void selectPackage(int index) {
+        if (amounts == null || index < 0 || index >= amounts.size()) return;
+        PaymentUiState s = current().copy();
+        s.setSelectedPackageIndex(index);
+        s.setUnitPrice(amounts.get(index));
+        s.setSelectedAmount(amounts.get(index));
+        uiState.setValue(s);
+    }
+
+    public void proceedToQuantityDiscount() {
+        PaymentUiState s = current().copy();
+        if (s.getUnitPrice() <= 0 && amounts != null && !amounts.isEmpty()) {
+            s.setUnitPrice(amounts.get(0));
+            s.setSelectedPackageIndex(0);
+        }
+        s.setStatus(PaymentUiState.Status.QUANTITY_DISCOUNT);
+        s.setQuantity(1);
+        s.setDiscountCode(null);
+        s.setDiscountAmount(0);
+        s.setDiscountMessage(null);
+        s.setSelectedAmount(s.getUnitPrice());
+        s.setMessage(null);
+        uiState.setValue(s);
+    }
+
+    public void backToPage1() {
+        resetToSelection(null);
+    }
+
+    public void backToPage2() {
+        PaymentUiState s = current().copy();
+        s.setStatus(PaymentUiState.Status.HOME);
+        s.setMessage(null);
+        uiState.setValue(s);
+    }
+
+    public void selectAmount(long unitPrice) {
+        PaymentUiState s = current().copy();
+        s.setUnitPrice(unitPrice);
+        s.setSelectedAmount(unitPrice);
+        if (amounts != null) {
+            int idx = amounts.indexOf(unitPrice);
+            if (idx >= 0) s.setSelectedPackageIndex(idx);
+        }
+        uiState.setValue(s);
+    }
+
+    public void increaseQuantity() {
+        PaymentUiState s = current().copy();
+        if (s.getStatus() != PaymentUiState.Status.QUANTITY_DISCOUNT) return;
+        if (s.getQuantity() >= 99) return;
+        s.setQuantity(s.getQuantity() + 1);
+        recalculateTotal(s);
+        uiState.setValue(s);
+    }
+
+    public void decreaseQuantity() {
+        PaymentUiState s = current().copy();
+        if (s.getStatus() != PaymentUiState.Status.QUANTITY_DISCOUNT) return;
+        if (s.getQuantity() <= 1) return;
+        s.setQuantity(s.getQuantity() - 1);
+        recalculateTotal(s);
+        uiState.setValue(s);
+    }
+
+    public void applyDiscount(String rawCode) {
+        PaymentUiState s = current().copy();
+        if (s.getStatus() != PaymentUiState.Status.QUANTITY_DISCOUNT) return;
+        if (rawCode == null || rawCode.trim().isEmpty()) {
+            s.setDiscountCode(null);
+            s.setDiscountAmount(0);
+            s.setDiscountMessage(null);
+            recalculateTotal(s);
+            uiState.setValue(s);
+            return;
+        }
+
+        String code = rawCode.trim().toUpperCase();
+        long subtotal = s.getSubtotal();
+
+        // 1. Kiểm tra CSDL SQLite của Android trước
+        LocalDiscount local = dbHelper.getDiscount(code);
+        if (local != null) {
+            if (local.minOrderAmount > 0 && subtotal < local.minOrderAmount) {
+                s.setDiscountMessage("Đơn tối thiểu " + fmt(local.minOrderAmount) + " mới dùng được mã này");
+                s.setDiscountCode(null);
+                s.setDiscountAmount(0);
+            } else {
+                long disc = KioskDbHelper.calculateDiscount(local, subtotal);
+                s.setDiscountCode(code);
+                s.setDiscountAmount(disc);
+                s.setDiscountMessage("Áp dụng mã " + code + " (-" + fmt(disc) + ")");
+            }
+            recalculateTotal(s);
+            uiState.setValue(s);
+        } else {
+            // 2. Thử gọi validateDiscount lên Server
+            repository.validateDiscount(code, subtotal, new ResultCallback<ValidateDiscountResponse>() {
+                @Override
+                public void onSuccess(ValidateDiscountResponse res) {
+                    PaymentUiState current = current().copy();
+                    if (current.getStatus() != PaymentUiState.Status.QUANTITY_DISCOUNT) return;
+                    if (res.isValid) {
+                        current.setDiscountCode(res.code);
+                        current.setDiscountAmount(res.discountAmount);
+                        current.setDiscountMessage("Áp dụng mã " + res.code + " (-" + fmt(res.discountAmount) + ")");
+                    } else {
+                        current.setDiscountCode(null);
+                        current.setDiscountAmount(0);
+                        current.setDiscountMessage(res.message != null ? res.message : "Mã không hợp lệ");
+                    }
+                    recalculateTotal(current);
+                    uiState.setValue(current);
+                }
+
+                @Override
+                public void onError(String message) {
+                    PaymentUiState current = current().copy();
+                    if (current.getStatus() != PaymentUiState.Status.QUANTITY_DISCOUNT) return;
+                    current.setDiscountCode(null);
+                    current.setDiscountAmount(0);
+                    current.setDiscountMessage(message);
+                    recalculateTotal(current);
+                    uiState.setValue(current);
+                }
+            });
+        }
+    }
+
+    private void recalculateTotal(PaymentUiState s) {
+        long subtotal = s.getSubtotal();
+        long disc = s.getDiscountAmount();
+        if (s.getDiscountCode() != null) {
+            LocalDiscount local = dbHelper.getDiscount(s.getDiscountCode());
+            if (local != null) {
+                disc = KioskDbHelper.calculateDiscount(local, subtotal);
+                s.setDiscountAmount(disc);
+            }
+        }
+        long finalAmount = Math.max(0, subtotal - disc);
+        s.setSelectedAmount(finalAmount);
+    }
+
+    public void proceedToMethod() {
+        PaymentUiState s = current().copy();
+        if (s.getStatus() != PaymentUiState.Status.QUANTITY_DISCOUNT) return;
+        if (s.getSelectedAmount() == null || s.getSelectedAmount() <= 0) {
+            s.setMessage("Số tiền thanh toán phải lớn hơn 0");
+            uiState.setValue(s);
+            return;
+        }
         s.setStatus(PaymentUiState.Status.METHOD);
-        s.setSelectedAmount(amount);
         s.setMessage(null);
         uiState.setValue(s);
         acceptor.connect(); // đảm bảo đang thử kết nối đầu nhận tiền
     }
 
+    public void backToQuantity() {
+        PaymentUiState s = current().copy();
+        if (s.getStatus() != PaymentUiState.Status.METHOD) return;
+        s.setStatus(PaymentUiState.Status.QUANTITY_DISCOUNT);
+        s.setMessage(null);
+        uiState.setValue(s);
+    }
+
     public void backToHome() {
-        if (current().getStatus() != PaymentUiState.Status.METHOD) return;
+        resetToSelection(null);
+    }
+
+    public void backToPriceSelection() {
         resetToSelection(null);
     }
 
@@ -237,7 +413,7 @@ public class PaymentViewModel extends ViewModel {
         creating.setBusy(true);
         uiState.setValue(creating);
 
-        activeCall = repository.createOrder(amount, new ResultCallback<OrderResponse>() {
+        activeCall = repository.createOrder(amount, now.getDiscountCode(), new ResultCallback<OrderResponse>() {
             @Override
             public void onSuccess(OrderResponse order) {
                 if (gen != generation) return;
@@ -358,6 +534,27 @@ public class PaymentViewModel extends ViewModel {
         stopTransferWork();
         final String orderId = order.orderId;
         activeOrderId = null;
+
+        // Lưu vào SQLite Database của Android
+        PaymentUiState s = current();
+        LocalTransaction tx = new LocalTransaction();
+        tx.orderId = order.orderId;
+        tx.type = "TRANSFER";
+        tx.amount = order.amount;
+        tx.unitPrice = s.getUnitPrice();
+        tx.quantity = s.getQuantity();
+        tx.discountCode = order.discountCode != null ? order.discountCode : s.getDiscountCode();
+        tx.discountAmount = order.discountAmount;
+        tx.status = "PAID";
+        tx.createdAt = System.currentTimeMillis();
+        if (order.transaction != null) {
+            tx.bankTxnId = order.transaction.transactionId;
+            tx.bankAccount = order.transaction.bankAccount;
+            tx.content = order.transaction.content;
+            tx.referenceNumber = order.transaction.referenceNumber;
+        }
+        dbHelper.insertTransaction(tx);
+
         finishPaid(orderId, order.amount, "QR");
     }
 
@@ -438,6 +635,21 @@ public class PaymentViewModel extends ViewModel {
         long paid = cashInserted;
         String orderId = "CASH" + System.currentTimeMillis();
         clearCashSession();
+
+        // Lưu vào SQLite Database của Android
+        PaymentUiState s = current();
+        LocalTransaction tx = new LocalTransaction();
+        tx.orderId = orderId;
+        tx.type = "CASH";
+        tx.amount = paid;
+        tx.unitPrice = s.getUnitPrice();
+        tx.quantity = s.getQuantity();
+        tx.discountCode = s.getDiscountCode();
+        tx.discountAmount = s.getDiscountAmount();
+        tx.status = "PAID";
+        tx.createdAt = System.currentTimeMillis();
+        dbHelper.insertTransaction(tx);
+
         finishPaid(orderId, paid, "CASH");
     }
 

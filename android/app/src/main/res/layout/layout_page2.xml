@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/background_page2">
+
+    <!-- Guideline cho đỉnh của Hàng 1 (Gói 1 & Gói 2): Y = 34% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage2Row1Top"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.34" />
+
+    <!-- HÀNG 1 - GÓI 1 (Bên trái) -->
+    <LinearLayout
+        android:id="@+id/cardPackage1"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="8dp"
+        android:background="@drawable/bg_package_selected"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="8dp"
+        app:layout_constraintEnd_toStartOf="@+id/cardPackage2"
+        app:layout_constraintHorizontal_weight="1"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage2Row1Top">
+
+        <ImageView
+            android:id="@+id/ivPackage1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:adjustViewBounds="true"
+            android:contentDescription="Gói 1"
+            android:scaleType="fitCenter"
+            android:src="@drawable/page2_btn1" />
+
+        <!-- Tick box dạng circle dưới mức giá 1 -->
+        <ImageView
+            android:id="@+id/ivCheckPackage1"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_marginTop="8dp"
+            android:contentDescription="Chọn gói 1"
+            android:src="@drawable/ic_circle_checked" />
+    </LinearLayout>
+
+    <!-- HÀNG 1 - GÓI 2 (Bên phải) -->
+    <LinearLayout
+        android:id="@+id/cardPackage2"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="24dp"
+        android:background="@drawable/bg_package_unselected"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_weight="1"
+        app:layout_constraintStart_toEndOf="@+id/cardPackage1"
+        app:layout_constraintTop_toTopOf="@+id/guidePage2Row1Top">
+
+        <ImageView
+            android:id="@+id/ivPackage2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:adjustViewBounds="true"
+            android:contentDescription="Gói 2"
+            android:scaleType="fitCenter"
+            android:src="@drawable/page2_btn2" />
+
+        <!-- Tick box dạng circle dưới mức giá 2 -->
+        <ImageView
+            android:id="@+id/ivCheckPackage2"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_marginTop="8dp"
+            android:contentDescription="Chọn gói 2"
+            android:src="@drawable/ic_circle_unchecked" />
+    </LinearLayout>
+
+    <!-- HÀNG 2 - GÓI 3 (Thẳng hàng phía dưới Gói 1, bên phải để trống) -->
+    <LinearLayout
+        android:id="@+id/cardPackage3"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:background="@drawable/bg_package_unselected"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="8dp"
+        app:layout_constraintEnd_toEndOf="@+id/cardPackage1"
+        app:layout_constraintStart_toStartOf="@+id/cardPackage1"
+        app:layout_constraintTop_toBottomOf="@+id/cardPackage1">
+
+        <ImageView
+            android:id="@+id/ivPackage3"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:adjustViewBounds="true"
+            android:contentDescription="Gói 3"
+            android:scaleType="fitCenter"
+            android:src="@drawable/page2_btn3" />
+
+        <!-- Tick box dạng circle dưới mức giá 3 -->
+        <ImageView
+            android:id="@+id/ivCheckPackage3"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_marginTop="8dp"
+            android:contentDescription="Chọn gói 3"
+            android:src="@drawable/ic_circle_unchecked" />
+    </LinearLayout>
+
+    <!-- Hai nút bottom: lùi xuống sâu hơn (Y = 89.0%) theo yêu cầu -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage2Bottom"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.890" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnPage2Back"
+        android:layout_width="140dp"
+        android:layout_height="44dp"
+        android:layout_marginStart="45dp"
+        android:background="@drawable/btn_maroon_pill_small"
+        android:text="Quay về"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage2Bottom"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage2Bottom" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnPage2Next"
+        android:layout_width="140dp"
+        android:layout_height="44dp"
+        android:layout_marginEnd="45dp"
+        android:background="@drawable/btn_maroon_pill_small"
+        android:text="Tiếp tục"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage2Bottom"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage2Bottom" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

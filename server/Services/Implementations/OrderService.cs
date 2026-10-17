@@ -1,4 +1,3 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using VietQrKiosk.Server.Config;
 using VietQrKiosk.Server.Entities;
@@ -12,6 +11,7 @@ namespace VietQrKiosk.Server.Services.Implementations;
 public class OrderService : IOrderService
 {
     private readonly IOrderRepository _orderRepo;
+    private readonly ITransactionRepository _txnRepo;
     private readonly IDiscountService _discountService;
     private readonly IVietQrClient _qrClient;
     private readonly IOrderNotifier _notifier;
@@ -20,6 +20,7 @@ public class OrderService : IOrderService
 
     public OrderService(
         IOrderRepository orderRepo,
+        ITransactionRepository txnRepo,
         IDiscountService discountService,
         IVietQrClient qrClient,
         IOrderNotifier notifier,
@@ -27,6 +28,7 @@ public class OrderService : IOrderService
         ILogger<OrderService> log)
     {
         _orderRepo = orderRepo;
+        _txnRepo = txnRepo;
         _discountService = discountService;
         _qrClient = qrClient;
         _notifier = notifier;
@@ -121,7 +123,9 @@ public class OrderService : IOrderService
             }
         }
 
-        return (order != null, order != null ? Helpers.ToDto(order, DateTime.UtcNow) : null);
+        if (order == null) return (false, null);
+        var txnDto = await GetTransactionDtoAsync(order, ct);
+        return (true, Helpers.ToDto(order, DateTime.UtcNow, txnDto));
     }
 
     public async Task<(bool Found, OrderDto? Order)> CancelOrderAsync(string orderId, CancellationToken ct)
@@ -132,20 +136,39 @@ public class OrderService : IOrderService
         if (order.Status == OrderStatus.Pending)
         {
             order.Status = OrderStatus.Cancelled;
-            try
-            {
-                await _orderRepo.SaveChangesAsync(ct);
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                // Callback thanh toán thắng cuộc đua: đọc lại trạng thái thật
-                order = await _orderRepo.GetByIdAsync(orderId, asNoTracking: true, ct);
-            }
-
+            await _orderRepo.SaveChangesAsync(ct);
             _notifier.Notify(orderId);
         }
 
-        if (order == null) return (false, null);
-        return (true, Helpers.ToDto(order, DateTime.UtcNow));
+        var txnDto = await GetTransactionDtoAsync(order, ct);
+        return (true, Helpers.ToDto(order, DateTime.UtcNow, txnDto));
+    }
+
+    private async Task<BankTransactionDto?> GetTransactionDtoAsync(Order order, CancellationToken ct)
+    {
+        if (order.Status != OrderStatus.Paid) return null;
+
+        var txn = await _txnRepo.GetByOrderIdAsync(order.OrderId, ct);
+        if (txn == null && !string.IsNullOrEmpty(order.BankTransactionId))
+        {
+            txn = await _txnRepo.GetByTransactionIdAsync(order.BankTransactionId, ct: ct);
+        }
+
+        if (txn == null) return null;
+
+        return new BankTransactionDto(
+            Id: txn.Id,
+            TransactionId: txn.TransactionId,
+            RefTransactionId: txn.RefTransactionId,
+            ReferenceNumber: txn.ReferenceNumber,
+            Amount: txn.Amount,
+            Content: txn.Content,
+            BankAccount: txn.BankAccount,
+            TransType: txn.TransType,
+            OrderId: txn.OrderId,
+            Result: txn.Result,
+            TransactionTimeMs: txn.TransactionTimeMs,
+            ReceivedAt: txn.ReceivedAt
+        );
     }
 }

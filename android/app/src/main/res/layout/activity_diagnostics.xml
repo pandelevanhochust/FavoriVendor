@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true">
@@ -13,9 +14,42 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Chẩn đoán máy nhận tiền"
+            android:text="Chẩn đoán &amp; Quản trị Favori"
             android:textSize="20sp"
             android:textStyle="bold" />
+
+        <!-- Nút Lịch sử giao dịch (SQLite) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTransactions"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="8dp"
+            android:text="Lịch sử giao dịch"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            app:backgroundTint="#850000"
+            app:cornerRadius="10dp"
+            app:icon="@android:drawable/ic_menu_agenda"
+            app:iconGravity="textStart" />
+
+        <!-- Nút Tạo & Quản lý mã giảm giá -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDiscounts"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginBottom="8dp"
+            android:text="Tạo &amp; Quản lý mã giảm giá"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            app:backgroundTint="#850000"
+            app:cornerRadius="10dp"
+            app:icon="@android:drawable/ic_menu_add"
+            app:iconGravity="textStart" />
 
         <TextView
             android:id="@+id/tvLink"
@@ -96,6 +130,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            app:backgroundTint="#850000"
+            android:textColor="#FFFFFF"
             android:text="Lưu và kết nối lại" />
 
         <LinearLayout
@@ -111,6 +147,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="4dp"
                 android:layout_weight="1"
+                app:strokeColor="#850000"
+                android:textColor="#850000"
                 android:text="Bắt tay thủ công" />
 
             <com.google.android.material.button.MaterialButton
@@ -120,6 +158,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
                 android:layout_weight="1"
+                app:strokeColor="#850000"
+                android:textColor="#850000"
                 android:text="Reset máy" />
 
         </LinearLayout>
@@ -141,6 +181,8 @@
                 android:id="@+id/btnSend"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                app:backgroundTint="#850000"
+                android:textColor="#FFFFFF"
                 android:text="Gửi" />
 
         </LinearLayout>
@@ -181,6 +223,8 @@
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            app:strokeColor="#850000"
+            android:textColor="#850000"
             android:text="Điền gợi ý VND6: 0x40..0x45 = 10k, 20k, 50k, 100k, 200k, 500k" />
 
         <LinearLayout
@@ -200,6 +244,8 @@
                 android:id="@+id/btnSaveMap"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                app:backgroundTint="#850000"
+                android:textColor="#FFFFFF"
                 android:text="Lưu" />
 
         </LinearLayout>
@@ -233,6 +279,8 @@
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            app:strokeColor="#850000"
+            android:textColor="#850000"
             android:text="Xoá bản ghi tiền mặt chưa xử lý (sau khi đã đối soát tay)" />
 
         <!-- ===== Log ===== -->
@@ -256,6 +304,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="4dp"
                 android:layout_weight="1"
+                app:strokeColor="#850000"
+                android:textColor="#850000"
                 android:text="Sao chép log" />
 
             <com.google.android.material.button.MaterialButton
@@ -265,6 +315,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
                 android:layout_weight="1"
+                app:strokeColor="#850000"
+                android:textColor="#850000"
                 android:text="Xoá log" />
 
         </LinearLayout>

@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/payment_page">
+
+    <!-- Tiêu đề: Y = 36% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guideMethodTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.36" />
+
+    <TextView
+        android:id="@+id/tvMethodTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:fontFamily="serif"
+        android:text="Chọn phương thức thanh toán"
+        android:textColor="#850000"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guideMethodTitle"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guideMethodTitle" />
+
+    <!-- Nút Chuyển khoản (VietQR): Y = 49% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guideMethodTransfer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.49" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnMethodTransfer"
+        android:layout_width="270dp"
+        android:layout_height="62dp"
+        android:background="@drawable/btn_maroon_pill"
+        android:text="Chuyển khoản (VietQR)"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guideMethodTransfer"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guideMethodTransfer" />
+
+    <!-- Nút Tiền mặt: Y = 61% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guideMethodCash"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.61" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnMethodCash"
+        android:layout_width="270dp"
+        android:layout_height="62dp"
+        android:background="@drawable/btn_maroon_pill"
+        android:text="Tiền mặt"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guideMethodCash"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guideMethodCash" />
+
+    <TextView
+        android:id="@+id/tvCashHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textColor="#D32F2F"
+        android:textSize="13sp"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/btnMethodCash"
+        tools:text="Máy nhận tiền chưa sẵn sàng"
+        tools:visibility="visible" />
+
+    <!-- Nút Quay về: Y = 82% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guideMethodBack"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.82" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnMethodBack"
+        android:layout_width="160dp"
+        android:layout_height="46dp"
+        android:background="@drawable/btn_maroon_pill_small"
+        android:text="Quay về"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guideMethodBack"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guideMethodBack" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

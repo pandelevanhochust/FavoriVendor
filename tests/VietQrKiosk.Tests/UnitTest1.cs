@@ -1,9 +1,7 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using VietQrKiosk.Server.Config;
 using VietQrKiosk.Server.Entities;
-using VietQrKiosk.Server.Infra.Data;
 using VietQrKiosk.Server.Infra.External;
 using VietQrKiosk.Server.Infra.Repositories;
 using VietQrKiosk.Server.Models;
@@ -14,19 +12,10 @@ namespace VietQrKiosk.Tests;
 
 public class CleanArchitectureAndFeatureTests
 {
-    private AppDbContext CreateDbContext(string dbName)
-    {
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(databaseName: dbName)
-            .Options;
-        return new AppDbContext(options);
-    }
-
     [Fact]
     public async Task DiscountService_ShouldCalculatePercentageAndFixedDiscountsCorrectly()
     {
-        using var db = CreateDbContext("DiscountTest1");
-        var discountRepo = new DiscountRepository(db);
+        var discountRepo = new InMemoryDiscountRepository();
         var logger = NullLogger<DiscountService>.Instance;
         var service = new DiscountService(discountRepo, logger);
 
@@ -49,8 +38,6 @@ public class CleanArchitectureAndFeatureTests
             IsActive = true
         });
 
-        await discountRepo.SaveChangesAsync();
-
         // 1. Percentage discount: 10% của 50,000 là 5,000 -> final = 45,000
         var res1 = await service.ValidateAsync("SALE10", 50000);
         Assert.True(res1.IsValid);
@@ -63,8 +50,8 @@ public class CleanArchitectureAndFeatureTests
         Assert.Equal(15000, res2.DiscountAmount);
         Assert.Equal(185000, res2.FinalAmount);
 
-        // 3. Minimum order not met: đơn 10,000 < min 20,000
-        var res3 = await service.ValidateAsync("SALE10", 10000);
+        // 3. Min order amount check
+        var res3 = await service.ValidateAsync("FIXED50K", 80000); // Chưa đạt 100k
         Assert.False(res3.IsValid);
 
         // 4. Fixed discount: 50,000 off for 120,000 -> final = 70,000
@@ -81,9 +68,9 @@ public class CleanArchitectureAndFeatureTests
     [Fact]
     public async Task OrderService_ShouldCreateOrderWithDiscountAndDeduceAmount()
     {
-        using var db = CreateDbContext("OrderTest1");
-        var orderRepo = new OrderRepository(db);
-        var discountRepo = new DiscountRepository(db);
+        var orderRepo = new InMemoryOrderRepository();
+        var txnRepo = new InMemoryTransactionRepository();
+        var discountRepo = new InMemoryDiscountRepository();
         var discountService = new DiscountService(discountRepo, NullLogger<DiscountService>.Instance);
         var notifier = new OrderNotifier();
 
@@ -95,7 +82,6 @@ public class CleanArchitectureAndFeatureTests
             MinOrderAmount = 50000,
             IsActive = true
         });
-        await discountRepo.SaveChangesAsync();
 
         var mockQrClient = new MockVietQrClient();
         var kioskOptions = Options.Create(new KioskOptions
@@ -107,6 +93,7 @@ public class CleanArchitectureAndFeatureTests
 
         var orderService = new OrderService(
             orderRepo,
+            txnRepo,
             discountService,
             mockQrClient,
             notifier,
@@ -115,7 +102,7 @@ public class CleanArchitectureAndFeatureTests
         );
 
         // Tạo đơn với mã giảm giá GIAM20K cho 100,000 VND
-        var req = new CreateOrderRequest(100000, "DEVICE_01", "GIAM20K");
+        var req = new CreateOrderRequest(100000, "1", "GIAM20K");
         var (success, orderDto, errorMessage, statusCode) = await orderService.CreateOrderAsync(req, CancellationToken.None);
 
         Assert.True(success);
@@ -129,12 +116,11 @@ public class CleanArchitectureAndFeatureTests
     }
 
     [Fact]
-    public async Task PaymentProcessor_ShouldProcessTransactionIdempotentlyAndSaveToPostgres()
+    public async Task PaymentProcessor_ShouldProcessTransactionIdempotentlyAndSaveToInMemory()
     {
-        using var db = CreateDbContext("PaymentTest1");
-        var orderRepo = new OrderRepository(db);
-        var txnRepo = new TransactionRepository(db);
-        var discountRepo = new DiscountRepository(db);
+        var orderRepo = new InMemoryOrderRepository();
+        var txnRepo = new InMemoryTransactionRepository();
+        var discountRepo = new InMemoryDiscountRepository();
         var discountService = new DiscountService(discountRepo, NullLogger<DiscountService>.Instance);
         var notifier = new OrderNotifier();
 
@@ -161,7 +147,6 @@ public class CleanArchitectureAndFeatureTests
             ExpiresAt = DateTime.UtcNow.AddMinutes(5)
         };
         await orderRepo.AddAsync(order);
-        await orderRepo.SaveChangesAsync();
 
         var processor = new PaymentProcessor(
             txnRepo,
@@ -173,7 +158,7 @@ public class CleanArchitectureAndFeatureTests
 
         var callback = new TransactionCallback
         {
-            TransactionId = "TXN_POSTGRES_001",
+            TransactionId = "TXN_INMEMORY_001",
             Amount = 45000,
             TransType = "C",
             OrderId = "ORDER1234567",
@@ -192,8 +177,8 @@ public class CleanArchitectureAndFeatureTests
         Assert.Equal(OrderStatus.Paid, updatedOrder.Status);
         Assert.NotNull(updatedOrder.PaidAt);
 
-        // Kiểm tra Lịch sử giao dịch đã được lưu vào database (PostgreSQL)
-        var savedTxn = await txnRepo.GetByTransactionIdAsync("TXN_POSTGRES_001");
+        // Kiểm tra Lịch sử giao dịch đã được lưu vào memory
+        var savedTxn = await txnRepo.GetByTransactionIdAsync("TXN_INMEMORY_001");
         Assert.NotNull(savedTxn);
         Assert.Equal("PAID", savedTxn.Result);
         Assert.Equal(45000, savedTxn.Amount);
@@ -207,6 +192,11 @@ public class CleanArchitectureAndFeatureTests
         // Lần 2: Gọi lại cùng TransactionId (Idempotency) -> Phải trả về đúng refId cũ mà không tạo bản ghi mới
         var ref2 = await processor.ProcessAsync(callback, CancellationToken.None);
         Assert.Equal(ref1, ref2);
+
+        // Kiểm tra lấy transaction từ orderId
+        var txnByOrder = await txnRepo.GetByOrderIdAsync("ORDER1234567");
+        Assert.NotNull(txnByOrder);
+        Assert.Equal("TXN_INMEMORY_001", txnByOrder.TransactionId);
     }
 
     private class MockVietQrClient : IVietQrClient

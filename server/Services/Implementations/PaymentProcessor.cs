@@ -1,4 +1,3 @@
-using Microsoft.EntityFrameworkCore;
 using VietQrKiosk.Server.Entities;
 using VietQrKiosk.Server.Infra.Repositories;
 using VietQrKiosk.Server.Models;
@@ -132,13 +131,13 @@ public class PaymentProcessor : IPaymentProcessor
                 await _orderRepo.SaveChangesAsync(ct);
             }
         }
-        catch (DbUpdateException ex)
+        catch (Exception ex)
         {
             // Trường hợp 2 request song song hoặc xung đột
             var dup = await _txnRepo.GetByTransactionIdAsync(key, asNoTracking: true, ct);
             if (dup != null) return dup.RefTransactionId;
 
-            _log.LogError(ex, "Lưu giao dịch {Txn} vào PostgreSQL thất bại, VietQR sẽ retry lại", key);
+            _log.LogError(ex, "Lưu giao dịch {Txn} thất bại", key);
             throw;
         }
 

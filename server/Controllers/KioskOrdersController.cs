@@ -6,13 +6,13 @@ namespace VietQrKiosk.Server.Controllers;
 
 /// <summary>API quản lý đơn hàng từ máy Kiosk (app Android).</summary>
 [ApiController]
-[Route("kiosk/orders")]
+[Route("vendor/orders")]
 [KioskApiKey]
-public class KioskOrdersController : ControllerBase
+public class VendorOrdersController : ControllerBase
 {
     private readonly IOrderService _orderService;
 
-    public KioskOrdersController(IOrderService orderService)
+    public VendorOrdersController(IOrderService orderService)
     {
         _orderService = orderService;
     }

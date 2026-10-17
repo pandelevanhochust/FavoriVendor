@@ -6,7 +6,7 @@ namespace VietQrKiosk.Server.Models;
 
 public record CreateOrderRequest(
     long Amount,
-    string? DeviceId,
+    string? DeviceId = "1",
     string? DiscountCode = null);
 
 /// <summary>Trạng thái: PENDING | PAID | EXPIRED | CANCELLED | REVIEW</summary>
@@ -20,7 +20,8 @@ public record OrderDto(
     string? QrCode,
     string? Content,
     int ExpiresInSeconds,
-    DateTime? PaidAt);
+    DateTime? PaidAt,
+    BankTransactionDto? Transaction = null);
 
 public record ValidateDiscountRequest(
     string Code,
@@ -42,6 +43,17 @@ public record DiscountSummaryDto(
     long? MinOrderAmount,
     long? MaxDiscountAmount,
     DateTime? EndDateUtc);
+
+public record CreateDiscountRequest(
+    string Code,
+    string? Description,
+    string Type,
+    long Value,
+    long? MinOrderAmount = null,
+    long? MaxDiscountAmount = null,
+    int? UsageLimit = null,
+    DateTime? EndDateUtc = null,
+    long? ExpiresAtMs = null);
 
 public record ErrorBody(string Message);
 

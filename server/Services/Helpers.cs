@@ -64,7 +64,7 @@ public static class Helpers
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    public static OrderDto ToDto(Order o, DateTime nowUtc)
+    public static OrderDto ToDto(Order o, DateTime nowUtc, BankTransactionDto? txn = null)
     {
         var remaining = (int)Math.Max(0, (o.ExpiresAt - nowUtc).TotalSeconds);
         return new OrderDto(
@@ -77,7 +77,8 @@ public static class Helpers
             QrCode: o.QrCode,
             Content: o.QrContent,
             ExpiresInSeconds: remaining,
-            PaidAt: o.PaidAt);
+            PaidAt: o.PaidAt,
+            Transaction: txn);
     }
 
     public static void Require(bool ok, string message)

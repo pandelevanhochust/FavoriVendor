@@ -10,4 +10,6 @@ public interface IDiscountService
         string? code, long orderAmount, CancellationToken ct = default);
     Task RecordUsageAsync(string code, CancellationToken ct = default);
     Task<List<DiscountSummaryDto>> GetActiveDiscountsAsync(CancellationToken ct = default);
+    Task<(bool Success, string? ErrorMessage, DiscountSummaryDto? Discount)> CreateDiscountAsync(
+        CreateDiscountRequest request, CancellationToken ct = default);
 }
