@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Định nghĩa các thiết bị USB-serial để Android nhận diện và cấp quyền.
+     Trên Android < 10, thẻ <usb-device> bắt buộc phải có thuộc tính cụ thể. -->
+<resources>
+    <!-- FTDI (0x0403 = 1027) -->
+    <usb-device vendor-id="1027" />
+    <!-- Prolific PL2303 (0x067B = 1659) -->
+    <usb-device vendor-id="1659" />
+    <!-- Qinheng CH340, CH341, CH343, CH9102 (0x1A86 = 6790) -->
+    <usb-device vendor-id="6790" />
+    <!-- Silicon Labs CP210x (0x10C4 = 4292) -->
+    <usb-device vendor-id="4292" />
+    <!-- Arduino / CDC ACM (0x2341 = 9025) -->
+    <usb-device vendor-id="9025" />
+    <!-- STMicroelectronics (0x0483 = 1155) -->
+    <usb-device vendor-id="1155" />
+    <!-- Raspberry Pi Pico / RP2040 (0x2E8A = 11914) -->
+    <usb-device vendor-id="11914" />
+    <!-- USB CDC Communication Class (2) & Data Class (10) -->
+    <usb-device class="2" />
+    <usb-device class="10" />
+    <!-- USB Vendor-specific Class (255) -->
+    <usb-device class="255" />
+</resources>

@@ -7,7 +7,8 @@ public class LogMachineController implements MachineController {
     private static final String TAG = "MachineController";
 
     @Override
-    public void onPaymentConfirmed(String orderId, long amount) {
-        Log.i(TAG, "ĐÃ THANH TOÁN order=" + orderId + " amount=" + amount + " -> TODO: điều khiển máy tại đây");
+    public void onPaymentConfirmed(String orderId, long amount, String method) {
+        Log.i(TAG, "ĐÃ THANH TOÁN [" + method + "] order=" + orderId + " amount=" + amount
+                + " -> TODO: điều khiển máy tại đây");
     }
 }

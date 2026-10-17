@@ -1,23 +1,22 @@
 package com.example.vietqrapp;
 
-import android.content.res.ColorStateList;
+import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.text.Editable;
-import android.text.TextWatcher;
+import android.text.InputType;
 import android.view.View;
+import android.widget.EditText;
+import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
 
 import com.example.vietqrapp.databinding.ActivityMainBinding;
 import com.example.vietqrapp.machine.LogMachineController;
 import com.example.vietqrapp.machine.MachineController;
-import com.example.vietqrapp.model.PriceOption;
 import com.example.vietqrapp.viewmodel.PaymentUiState;
 import com.example.vietqrapp.viewmodel.PaymentViewModel;
-import com.google.android.material.button.MaterialButton;
-import com.google.android.material.color.MaterialColors;
 
 import java.text.NumberFormat;
 import java.util.List;
@@ -31,9 +30,6 @@ public class MainActivity extends AppCompatActivity {
     // THAY bằng lớp điều khiển phần cứng thật của máy (relay, serial, bluetooth...).
     private final MachineController machine = new LogMachineController();
 
-    private MaterialButton[] presetButtons;
-    private boolean updatingCustomAmount = false;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -44,110 +40,135 @@ public class MainActivity extends AppCompatActivity {
 
         viewModel = new ViewModelProvider(this).get(PaymentViewModel.class);
 
-        setupPresetButtons();
-        setupCustomAmountInput();
-
-        binding.btnGenerate.setOnClickListener(v -> viewModel.generateQr());
-        binding.btnCancel.setOnClickListener(v -> viewModel.cancel());
-        binding.btnDone.setOnClickListener(v -> {
-            clearCustomAmountText();
-            viewModel.resetToSelection(null);
+        // Nhấn giữ thanh tiêu đề để vào màn Chẩn đoán (nhân viên, có PIN).
+        binding.toolbar.setOnLongClickListener(v -> {
+            showPinDialog();
+            return true;
         });
+
+        // Màn 1: chọn mức giá (80k, 100k, 200k...)
+        final List<Long> amounts = viewModel.getAmounts();
+        if (amounts.size() > 0) {
+            binding.tvPrice1.setText(formatVnd(amounts.get(0)));
+            binding.tvPrice1.setOnClickListener(v -> viewModel.selectAmount(amounts.get(0)));
+            binding.tvPrice1.setVisibility(View.VISIBLE);
+        } else {
+            binding.tvPrice1.setVisibility(View.GONE);
+        }
+
+        if (amounts.size() > 1) {
+            binding.tvPrice2.setText(formatVnd(amounts.get(1)));
+            binding.tvPrice2.setOnClickListener(v -> viewModel.selectAmount(amounts.get(1)));
+            binding.tvPrice2.setVisibility(View.VISIBLE);
+        } else {
+            binding.tvPrice2.setVisibility(View.GONE);
+        }
+
+        if (amounts.size() > 2) {
+            binding.tvPrice3.setText(formatVnd(amounts.get(2)));
+            binding.tvPrice3.setOnClickListener(v -> viewModel.selectAmount(amounts.get(2)));
+            binding.tvPrice3.setVisibility(View.VISIBLE);
+        } else {
+            binding.tvPrice3.setVisibility(View.GONE);
+        }
+
+        // Màn 2: chọn phương thức
+        binding.tvMethodCash.setOnClickListener(v -> viewModel.chooseCash());
+        binding.tvMethodTransfer.setOnClickListener(v -> viewModel.chooseTransfer());
+        binding.tvBack.setOnClickListener(v -> viewModel.backToHome());
+
+        binding.btnCancel.setOnClickListener(v -> viewModel.cancel());
+        binding.btnCashCancel.setOnClickListener(v -> viewModel.cancelCash());
+        binding.btnDone.setOnClickListener(v -> viewModel.resetToSelection(null));
 
         viewModel.getUiState().observe(this, this::render);
 
-        // Sự kiện "đã thanh toán": chỉ phát một lần cho mỗi đơn, nên điều khiển máy ở đây là an toàn.
+        // Sự kiện "đã thanh toán": chỉ phát một lần cho mỗi giao dịch -> điều khiển máy ở đây là an toàn.
         viewModel.getPaidEvent().observe(this, event -> {
             if (event == null) return;
-            viewModel.onPaidEventHandled(); // đánh dấu đã nhận TRƯỚC để không bị gọi lại nếu lỗi/recreate
-            machine.onPaymentConfirmed(event.orderId, event.amount);
+            viewModel.onPaidEventHandled(); // đánh dấu đã nhận TRƯỚC để không bị gọi lại
+            machine.onPaymentConfirmed(event.orderId, event.amount, event.method);
         });
     }
 
-    private void setupPresetButtons() {
-        presetButtons = new MaterialButton[]{
-                binding.btnPrice1, binding.btnPrice2, binding.btnPrice3, binding.btnPrice4
-        };
-        List<PriceOption> options = viewModel.getPriceOptions();
-        for (int i = 0; i < presetButtons.length && i < options.size(); i++) {
-            final PriceOption option = options.get(i);
-            presetButtons[i].setText(option.getLabel());
-            presetButtons[i].setOnClickListener(v -> {
-                clearCustomAmountText();
-                viewModel.selectPreset(option.getAmount());
-            });
-        }
+    @Override
+    protected void onResume() {
+        super.onResume();
+        KioskApp.get().billAcceptor().connect();
+        viewModel.reassertCashState();
     }
 
-    private void setupCustomAmountInput() {
-        binding.etCustomAmount.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-                if (updatingCustomAmount) return;
-                viewModel.onCustomAmountChanged(s.toString());
-            }
-        });
-    }
-
-    private void clearCustomAmountText() {
-        updatingCustomAmount = true;
-        binding.etCustomAmount.setText("");
-        updatingCustomAmount = false;
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // Cắm module USB -> Android mở lại app qua intent USB_DEVICE_ATTACHED
+        KioskApp.get().billAcceptor().connect();
     }
 
     private void render(PaymentUiState state) {
         PaymentUiState.Status status = state.getStatus();
 
-        boolean selecting = status == PaymentUiState.Status.IDLE || status == PaymentUiState.Status.CREATING;
-        binding.layoutPriceSelection.setVisibility(selecting ? View.VISIBLE : View.GONE);
-        binding.layoutQr.setVisibility(status == PaymentUiState.Status.WAITING ? View.VISIBLE : View.GONE);
+        binding.layoutHome.setVisibility(status == PaymentUiState.Status.HOME ? View.VISIBLE : View.GONE);
+        binding.layoutMethod.setVisibility(status == PaymentUiState.Status.METHOD ? View.VISIBLE : View.GONE);
+        binding.layoutQr.setVisibility(
+                status == PaymentUiState.Status.CREATING || status == PaymentUiState.Status.WAITING ? View.VISIBLE : View.GONE);
+        binding.layoutCash.setVisibility(status == PaymentUiState.Status.CASH ? View.VISIBLE : View.GONE);
         binding.layoutResult.setVisibility(
                 status == PaymentUiState.Status.PAID || status == PaymentUiState.Status.REVIEW ? View.VISIBLE : View.GONE);
 
-        // --- 1. chọn giá ---
-        List<PriceOption> options = viewModel.getPriceOptions();
-        for (int i = 0; i < presetButtons.length && i < options.size(); i++) {
-            boolean selected = state.getSelectedAmount() != null
-                    && state.getSelectedAmount() == options.get(i).getAmount();
-            styleSelected(presetButtons[i], selected);
-            presetButtons[i].setEnabled(status == PaymentUiState.Status.IDLE);
+        long amount = state.getSelectedAmount() != null ? state.getSelectedAmount() : 0L;
+
+        // --- Màn 1 ---
+        boolean hasHomeMessage = status == PaymentUiState.Status.HOME && state.getMessage() != null;
+        binding.tvHomeMessage.setVisibility(hasHomeMessage ? View.VISIBLE : View.GONE);
+        if (hasHomeMessage) binding.tvHomeMessage.setText(state.getMessage());
+
+        // --- Màn 2 ---
+        if (status == PaymentUiState.Status.METHOD) {
+            binding.tvMethodAmount.setText("Số tiền: " + formatVnd(amount));
+            binding.tvMethodCash.setAlpha(state.isCashReady() ? 1f : 0.5f);
+            boolean showHint = !state.isCashReady();
+            binding.tvCashHint.setVisibility(showHint ? View.VISIBLE : View.GONE);
+            if (showHint) binding.tvCashHint.setText("Máy nhận tiền chưa sẵn sàng");
+            boolean hasMsg = state.getMessage() != null;
+            binding.tvMethodMessage.setVisibility(hasMsg ? View.VISIBLE : View.GONE);
+            if (hasMsg) binding.tvMethodMessage.setText(state.getMessage());
         }
-        binding.etCustomAmount.setEnabled(status == PaymentUiState.Status.IDLE);
 
-        boolean creating = status == PaymentUiState.Status.CREATING;
-        Long amount = state.getSelectedAmount();
-        binding.btnGenerate.setEnabled(status == PaymentUiState.Status.IDLE && amount != null && amount > 0);
-        binding.btnGenerate.setText(creating ? "" : "Tạo mã QR");
-        binding.progressGenerate.setVisibility(creating ? View.VISIBLE : View.GONE);
-
-        boolean hasMessage = selecting && state.getMessage() != null;
-        binding.tvError.setVisibility(hasMessage ? View.VISIBLE : View.GONE);
-        if (hasMessage) binding.tvError.setText(state.getMessage());
-
-        // --- 2. QR ---
-        if (status == PaymentUiState.Status.WAITING) {
-            if (state.getQrBitmap() != null) binding.ivQrCode.setImageBitmap(state.getQrBitmap());
-            binding.tvAmount.setText(formatVnd(amount != null ? amount : 0));
-            binding.tvOrderId.setText("Mã đơn: " + (state.getOrderId() != null ? state.getOrderId() : ""));
+        // --- Chuyển khoản: QR ---
+        if (status == PaymentUiState.Status.CREATING || status == PaymentUiState.Status.WAITING) {
+            boolean creating = status == PaymentUiState.Status.CREATING;
+            binding.tvQrAmount.setText(formatVnd(amount));
+            binding.ivQrCode.setVisibility(creating ? View.INVISIBLE : View.VISIBLE);
+            if (!creating && state.getQrBitmap() != null) binding.ivQrCode.setImageBitmap(state.getQrBitmap());
+            binding.tvQrStatus.setText(creating ? "Đang tạo mã QR..." : "Đang chờ thanh toán...");
             int s = state.getRemainingSeconds();
-            binding.tvCountdown.setText(String.format(Locale.US, "Mã còn hiệu lực: %02d:%02d", s / 60, s % 60));
-            binding.btnCancel.setEnabled(!state.isBusy());
+            binding.tvCountdown.setText(creating ? ""
+                    : String.format(Locale.US, "Mã còn hiệu lực: %02d:%02d", s / 60, s % 60));
+            binding.tvOrderId.setText(creating || state.getOrderId() == null ? "" : "Mã đơn: " + state.getOrderId());
+            binding.btnCancel.setEnabled(!creating && !state.isBusy());
         }
 
-        // --- 3. kết quả ---
+        // --- Tiền mặt ---
+        if (status == PaymentUiState.Status.CASH) {
+            long inserted = state.getCashInserted();
+            binding.tvCashAmount.setText("Cần thanh toán: " + formatVnd(amount));
+            binding.tvCashInserted.setText("Đã nhận: " + formatVnd(inserted));
+            binding.tvCashRemaining.setText("Còn thiếu: " + formatVnd(Math.max(0, amount - inserted)));
+            boolean hasMsg = state.getMessage() != null;
+            binding.tvCashMessage.setVisibility(hasMsg ? View.VISIBLE : View.GONE);
+            if (hasMsg) binding.tvCashMessage.setText(state.getMessage());
+            binding.btnCashCancel.setEnabled(inserted == 0);
+        }
+
+        // --- Kết quả ---
         if (status == PaymentUiState.Status.PAID) {
             binding.tvResultIcon.setText("✓");
             binding.tvResultIcon.setTextColor(Color.parseColor("#2E7D32"));
             binding.tvResultTitle.setText("Thanh toán thành công");
-            binding.tvResultMessage.setText(formatVnd(amount != null ? amount : 0) + "\nCảm ơn quý khách!");
+            binding.tvResultMessage.setText(formatVnd(amount)
+                    + ("CASH".equals(state.getPaidMethod()) ? " (tiền mặt)" : " (chuyển khoản)")
+                    + "\nCảm ơn quý khách!");
         } else if (status == PaymentUiState.Status.REVIEW) {
             binding.tvResultIcon.setText("!");
             binding.tvResultIcon.setTextColor(Color.parseColor("#EF6C00"));
@@ -156,13 +177,25 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void styleSelected(MaterialButton button, boolean selected) {
-        int primary = MaterialColors.getColor(button, com.google.android.material.R.attr.colorPrimary);
-        button.setBackgroundTintList(ColorStateList.valueOf(selected ? primary : Color.TRANSPARENT));
-        button.setTextColor(selected ? Color.WHITE : primary);
+    private void showPinDialog() {
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        input.setHint("Nhập mã PIN nhân viên");
+        new AlertDialog.Builder(this)
+                .setTitle("Chẩn đoán")
+                .setView(input)
+                .setPositiveButton("Mở", (d, w) -> {
+                    if (BuildConfig.ADMIN_PIN.equals(input.getText().toString().trim())) {
+                        startActivity(new Intent(this, DiagnosticsActivity.class));
+                    } else {
+                        Toast.makeText(this, "Sai mã PIN", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("Huỷ", null)
+                .show();
     }
 
     private String formatVnd(long amount) {
-        return NumberFormat.getInstance(new Locale("vi", "VN")).format(amount) + " đ";
+        return NumberFormat.getInstance(new Locale("vi", "VN")).format(amount) + " VND";
     }
 }
