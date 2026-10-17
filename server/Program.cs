@@ -13,6 +13,32 @@ using VietQrKiosk.Server.Models;
 using VietQrKiosk.Server.Services;
 using VietQrKiosk.Server.Services.Implementations;
 using VietQrKiosk.Server.Services.Interfaces;
+// Tự động nạp biến môi trường từ .env nếu chạy local dotnet run
+var candidateEnvFiles = new[] { ".env", "../.env", Path.Combine(AppContext.BaseDirectory, ".env") };
+foreach (var envFile in candidateEnvFiles)
+{
+    if (File.Exists(envFile))
+    {
+        foreach (var line in File.ReadAllLines(envFile))
+        {
+            var trimmed = line.Trim();
+            if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith('#')) continue;
+            var parts = trimmed.Split('=', 2);
+            if (parts.Length == 2)
+            {
+                var key = parts[0].Trim();
+                var val = parts[1].Trim();
+                Environment.SetEnvironmentVariable(key, val);
+            }
+        }
+        break;
+    }
+}
+
+if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")))
+{
+    Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
