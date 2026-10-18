@@ -42,4 +42,7 @@ public interface KioskApiService {
 
     @GET("vendor/transactions")
     Call<List<BankTransactionResponse>> getRecentTransactions(@Query("limit") int limit);
+
+    @POST("vendor/transactions/cash")
+    Call<com.example.vietqrapp.model.SyncCashTransactionResponse> syncCashTransaction(@Body com.example.vietqrapp.model.SyncCashTransactionRequest body);
 }

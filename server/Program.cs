@@ -1,10 +1,12 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using VietQrKiosk.Server.Config;
 using VietQrKiosk.Server.Controllers;
+using VietQrKiosk.Server.Infra.Data;
 using VietQrKiosk.Server.Infra.External;
 using VietQrKiosk.Server.Infra.Repositories;
 using VietQrKiosk.Server.Models;
@@ -61,10 +63,49 @@ Helpers.Require(!string.IsNullOrWhiteSpace(callbackCfg.BasePath), "Callback:Base
 Helpers.Require(kioskCfg.ApiKey.Length >= 16, "Kiosk:ApiKey (tối thiểu 16 ký tự)");
 Helpers.Require(kioskCfg.OrderTtlSeconds is >= 60 and <= 900, "Kiosk:OrderTtlSeconds (60..900)");
 
-// ------------------------------------------------------------------ Infra: In-Memory Repositories (Uỷ thác CSDL cho máy Android, server hoạt động stateless/in-memory)
-builder.Services.AddSingleton<IOrderRepository, InMemoryOrderRepository>();
-builder.Services.AddSingleton<ITransactionRepository, InMemoryTransactionRepository>();
-builder.Services.AddSingleton<IDiscountRepository, InMemoryDiscountRepository>();
+// ------------------------------------------------------------------ Infra: Database (PostgreSQL Supabase) & Repositories
+var rawConnStr = builder.Configuration.GetConnectionString("Default");
+if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DATABASE_URL")))
+{
+    rawConnStr = Environment.GetEnvironmentVariable("DATABASE_URL");
+}
+
+var connStr = FormatPostgresConnectionString(rawConnStr ?? "");
+var hasPasswordPlaceholder = connStr.Contains("[YOUR-PASSWORD]", StringComparison.OrdinalIgnoreCase);
+var usePostgres = !string.IsNullOrWhiteSpace(connStr) 
+    && !connStr.Contains("localhost:5433") 
+    && !hasPasswordPlaceholder;
+
+if (hasPasswordPlaceholder)
+{
+    Console.ForegroundColor = ConsoleColor.Yellow;
+    Console.WriteLine("⚠️ [CẢNH BÁO] Connection string Supabase đang chứa placeholder '[YOUR-PASSWORD]'.");
+    Console.WriteLine("   Vui lòng thay thế bằng mật khẩu thực tế của bạn trong server/appsettings.json.");
+    Console.WriteLine("   Hệ thống tạm thời chạy với In-Memory Repositories để không làm gián đoạn ứng dụng.");
+    Console.ResetColor();
+}
+
+if (usePostgres)
+{
+    builder.Services.AddDbContext<AppDbContext>(options =>
+    {
+        options.UseNpgsql(connStr, npgsqlOptions =>
+        {
+            npgsqlOptions.EnableRetryOnFailure(maxRetryCount: 3, maxRetryDelay: TimeSpan.FromSeconds(5), errorCodesToAdd: null);
+        });
+    });
+
+    builder.Services.AddScoped<IOrderRepository, OrderRepository>();
+    builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
+    builder.Services.AddScoped<IDiscountRepository, DiscountRepository>();
+}
+else
+{
+    // Fallback in-memory nếu chưa cấu hình chuỗi kết nối Supabase
+    builder.Services.AddSingleton<IOrderRepository, InMemoryOrderRepository>();
+    builder.Services.AddSingleton<ITransactionRepository, InMemoryTransactionRepository>();
+    builder.Services.AddSingleton<IDiscountRepository, InMemoryDiscountRepository>();
+}
 
 builder.Services.AddHttpClient("vietqr", c =>
 {
@@ -142,4 +183,84 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// Khởi tạo bảng và dữ liệu seed nếu chạy với PostgreSQL / Supabase
+if (usePostgres)
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        await DbInitializer.InitializeAsync(db, logger);
+    }
+    catch (Exception ex)
+    {
+        var logger = app.Services.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "⚠️ Không thể kết nối hoặc khởi tạo Supabase PostgreSQL. Vui lòng kiểm tra lại mật khẩu Database trên Supabase.");
+    }
+}
+
 app.Run();
+
+static string FormatPostgresConnectionString(string input)
+{
+    if (string.IsNullOrWhiteSpace(input)) return input;
+    if (input.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) ||
+        input.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase))
+    {
+        try
+        {
+            var withoutScheme = input.Substring(input.IndexOf("://", StringComparison.Ordinal) + 3);
+            var atIndex = withoutScheme.LastIndexOf('@');
+            string userPart = "";
+            string hostPart = withoutScheme;
+            if (atIndex >= 0)
+            {
+                userPart = withoutScheme.Substring(0, atIndex);
+                hostPart = withoutScheme.Substring(atIndex + 1);
+            }
+
+            var slashIndex = hostPart.IndexOf('/');
+            string db = "postgres";
+            if (slashIndex >= 0)
+            {
+                db = hostPart.Substring(slashIndex + 1);
+                var qIndex = db.IndexOf('?');
+                if (qIndex >= 0) db = db.Substring(0, qIndex);
+                hostPart = hostPart.Substring(0, slashIndex);
+            }
+
+            var colonIndex = hostPart.IndexOf(':');
+            string host = hostPart;
+            int port = 5432;
+            if (colonIndex >= 0)
+            {
+                host = hostPart.Substring(0, colonIndex);
+                int.TryParse(hostPart.Substring(colonIndex + 1), out port);
+            }
+
+            string username = "postgres";
+            string password = "";
+            if (!string.IsNullOrEmpty(userPart))
+            {
+                var userColon = userPart.IndexOf(':');
+                if (userColon >= 0)
+                {
+                    username = Uri.UnescapeDataString(userPart.Substring(0, userColon));
+                    password = Uri.UnescapeDataString(userPart.Substring(userColon + 1));
+                }
+                else
+                {
+                    username = Uri.UnescapeDataString(userPart);
+                }
+            }
+
+            return $"Host={host};Port={port};Database={db};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
+        }
+        catch
+        {
+            return input;
+        }
+    }
+    return input;
+}

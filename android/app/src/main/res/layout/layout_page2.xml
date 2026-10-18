@@ -55,15 +55,30 @@
                 android:contentDescription="Chọn gói 1"
                 android:src="@drawable/ic_circle_checked" />
 
-            <TextView
-                android:id="@+id/tvPricePackage1"
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:textColor="#850000"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:text="80.000đ" />
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvPricePackage1"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#850000"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:text="29.000đ" />
+
+                <TextView
+                    android:id="@+id/tvPromoPackage1"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#E65100"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:text="(Từ 2 tấm: 26k/tấm)" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 
@@ -117,7 +132,7 @@
                 android:textColor="#850000"
                 android:textSize="16sp"
                 android:textStyle="bold"
-                android:text="100.000đ" />
+                android:text="200.000đ" />
         </LinearLayout>
     </LinearLayout>
 
@@ -161,15 +176,30 @@
                 android:contentDescription="Chọn gói 3"
                 android:src="@drawable/ic_circle_unchecked" />
 
-            <TextView
-                android:id="@+id/tvPricePackage3"
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:textColor="#850000"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:text="200.000đ" />
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvPricePackage3"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#850000"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:text="39.000đ" />
+
+                <TextView
+                    android:id="@+id/tvPromoPackage3"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#E65100"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:text="(Từ 3 tấm: 33k/tấm)" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 

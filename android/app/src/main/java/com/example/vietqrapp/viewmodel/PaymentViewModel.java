@@ -236,19 +236,17 @@ public class PaymentViewModel extends ViewModel {
 
     public void proceedToQuantityDiscount() {
         PaymentUiState s = current().copy();
-        List<Long> curPrices = priceManager.getAllPrices();
         int idx = s.getSelectedPackageIndex();
+        List<Long> curPrices = priceManager.getAllPrices();
         if (idx < 0 || idx >= curPrices.size()) idx = 0;
-        long unitPrice = curPrices.get(idx);
-        s.setUnitPrice(unitPrice);
         s.setSelectedPackageIndex(idx);
         s.setStatus(PaymentUiState.Status.QUANTITY_DISCOUNT);
         s.setQuantity(1);
         s.setDiscountCode(null);
         s.setDiscountAmount(0);
         s.setDiscountMessage(null);
-        s.setSelectedAmount(unitPrice);
         s.setMessage(null);
+        recalculateTotal(s);
         uiState.setValue(s);
     }
 
@@ -355,8 +353,47 @@ public class PaymentViewModel extends ViewModel {
         }
     }
 
+    public long calculateEffectiveUnitPrice(int packageIndex, int quantity) {
+        long basePrice = priceManager.getPrice(packageIndex);
+        if (packageIndex == 0) {
+            // Gói 1: In polaroid ảnh có sẵn. Nếu >= 2 tấm thì đơn giá còn 26.000đ/tấm
+            if (quantity >= 2) {
+                return 26_000L;
+            }
+        } else if (packageIndex == 2) {
+            // Gói 3: Chụp ảnh Polaroid. Nếu >= 3 tấm thì đơn giá còn 33.000đ/tấm
+            if (quantity >= 3) {
+                return 33_000L;
+            }
+        }
+        return basePrice;
+    }
+
+    public String getVolumeDiscountHint(int packageIndex, int quantity) {
+        if (packageIndex == 0) {
+            if (quantity >= 2) {
+                return "🎉 Đã áp dụng ưu đãi: 26.000đ/tấm (từ 2 tấm)";
+            } else {
+                return "💡 Mua từ 2 tấm chỉ còn 26.000đ/tấm";
+            }
+        } else if (packageIndex == 2) {
+            if (quantity >= 3) {
+                return "🎉 Đã áp dụng ưu đãi: 33.000đ/tấm (từ 3 tấm)";
+            } else {
+                return "💡 Chụp từ 3 tấm chỉ còn 33.000đ/tấm";
+            }
+        }
+        return null;
+    }
+
     private void recalculateTotal(PaymentUiState s) {
-        long subtotal = s.getSubtotal();
+        int pkgIdx = s.getSelectedPackageIndex();
+        int qty = Math.max(1, s.getQuantity());
+        long effectiveUnit = calculateEffectiveUnitPrice(pkgIdx, qty);
+        s.setUnitPrice(effectiveUnit);
+        s.setVolumeDiscountHint(getVolumeDiscountHint(pkgIdx, qty));
+
+        long subtotal = effectiveUnit * qty;
         long disc = s.getDiscountAmount();
         if (s.getDiscountCode() != null) {
             LocalDiscount local = dbHelper.getDiscount(s.getDiscountCode());
@@ -650,6 +687,30 @@ public class PaymentViewModel extends ViewModel {
         tx.status = "PAID";
         tx.createdAt = System.currentTimeMillis();
         dbHelper.insertTransaction(tx);
+
+        // Đồng bộ giao dịch tiền mặt lên máy chủ & Supabase PostgreSQL
+        com.example.vietqrapp.model.SyncCashTransactionRequest syncReq =
+                new com.example.vietqrapp.model.SyncCashTransactionRequest(
+                        orderId,
+                        paid,
+                        s.getUnitPrice(),
+                        s.getQuantity(),
+                        s.getDiscountCode(),
+                        s.getDiscountAmount(),
+                        tx.createdAt,
+                        com.example.vietqrapp.BuildConfig.DEVICE_ID
+                );
+        repository.syncCashTransaction(syncReq, new ResultCallback<com.example.vietqrapp.model.SyncCashTransactionResponse>() {
+            @Override
+            public void onSuccess(com.example.vietqrapp.model.SyncCashTransactionResponse res) {
+                android.util.Log.i("PaymentViewModel", "Đã đồng bộ giao dịch tiền mặt lên server: " + orderId);
+            }
+
+            @Override
+            public void onError(String message) {
+                android.util.Log.e("PaymentViewModel", "Lỗi đồng bộ giao dịch tiền mặt lên server: " + message);
+            }
+        });
 
         finishPaid(orderId, paid, "CASH");
     }

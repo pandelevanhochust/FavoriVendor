@@ -19,8 +19,8 @@ public class Order
 
     public OrderStatus Status { get; set; } = OrderStatus.Pending;
 
-    public string QrCode { get; set; } = string.Empty;
-    public string QrContent { get; set; } = string.Empty;
+    public string? QrCode { get; set; }
+    public string? QrContent { get; set; }
     public string? DeviceId { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

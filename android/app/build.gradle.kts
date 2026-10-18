@@ -27,7 +27,7 @@ android {
         buildConfigField("String", "DEVICE_ID", "\"${prop("kiosk.deviceId", "1")}\"")
         // PIN vào màn Chẩn đoán (nhấn giữ thanh tiêu đề). ĐỔI trong local.properties: kiosk.adminPin=...
         // Mức giá hiển thị ở màn 1 (VND, cách nhau bằng dấu phẩy). Máy nhận tiền VND6 chỉ nhận tờ >= 10.000.
-        buildConfigField("String", "DEMO_AMOUNTS", "\"${prop("kiosk.amounts", "80000,100000,200000")}\"")
+        buildConfigField("String", "DEMO_AMOUNTS", "\"${prop("kiosk.amounts", "29000,200000,39000")}\"")
         buildConfigField("String", "ADMIN_PIN", "\"${prop("kiosk.adminPin", "246810")}\"")
     }
 

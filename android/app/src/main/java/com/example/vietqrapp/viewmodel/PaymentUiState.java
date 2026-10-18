@@ -24,6 +24,7 @@ public class PaymentUiState {
     private String discountCode;     // Mã giảm giá đã áp dụng
     private long discountAmount;     // Số tiền giảm
     private String discountMessage;  // Thông báo áp dụng mã giảm giá
+    private String volumeDiscountHint; // Thông báo ưu đãi số lượng (Ví dụ: Từ 2 tấm chỉ còn 26k/tấm)
 
     private Bitmap qrBitmap;
     private String orderId;
@@ -78,6 +79,9 @@ public class PaymentUiState {
     public boolean isCashReady() { return cashReady; }
     public void setCashReady(boolean cashReady) { this.cashReady = cashReady; }
 
+    public String getVolumeDiscountHint() { return volumeDiscountHint; }
+    public void setVolumeDiscountHint(String volumeDiscountHint) { this.volumeDiscountHint = volumeDiscountHint; }
+
     public String getCashStatusText() { return cashStatusText; }
     public void setCashStatusText(String cashStatusText) { this.cashStatusText = cashStatusText; }
 
@@ -102,6 +106,7 @@ public class PaymentUiState {
         c.discountCode = discountCode;
         c.discountAmount = discountAmount;
         c.discountMessage = discountMessage;
+        c.volumeDiscountHint = volumeDiscountHint;
         c.qrBitmap = qrBitmap;
         c.orderId = orderId;
         c.remainingSeconds = remainingSeconds;

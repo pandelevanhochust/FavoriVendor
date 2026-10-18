@@ -100,6 +100,12 @@ public class KioskRepository {
         return run(api.getTransactionByOrderId(orderId), cb);
     }
 
+    public Call<com.example.vietqrapp.model.SyncCashTransactionResponse> syncCashTransaction(
+            com.example.vietqrapp.model.SyncCashTransactionRequest req,
+            ResultCallback<com.example.vietqrapp.model.SyncCashTransactionResponse> cb) {
+        return run(api.syncCashTransaction(req), cb);
+    }
+
     private <T> Call<T> run(Call<T> call, final ResultCallback<T> cb) {
         call.enqueue(new Callback<T>() {
             @Override

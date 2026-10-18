@@ -55,6 +55,21 @@ public record CreateDiscountRequest(
     DateTime? EndDateUtc = null,
     long? ExpiresAtMs = null);
 
+public record SyncCashTransactionRequest(
+    string OrderId,
+    long Amount,
+    long UnitPrice,
+    int Quantity,
+    string? DiscountCode,
+    long DiscountAmount,
+    long CreatedAt,
+    string? DeviceId = "1");
+
+public record SyncCashTransactionResponse(
+    bool Success,
+    string OrderId,
+    string Message);
+
 public record ErrorBody(string Message);
 
 // ---------- API server cung cấp cho VietQR gọi vào (HTTP API Callback) ----------

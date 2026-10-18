@@ -221,6 +221,13 @@ public class MainActivity extends AppCompatActivity {
             binding.layoutPage3.tvQtyValue.setText(String.valueOf(state.getQuantity()));
             binding.layoutPage3.tvTotalPrice.setText(formatVnd(amount));
 
+            if (state.getVolumeDiscountHint() != null) {
+                binding.layoutPage3.tvVolumeDiscountHint.setVisibility(View.VISIBLE);
+                binding.layoutPage3.tvVolumeDiscountHint.setText(state.getVolumeDiscountHint());
+            } else {
+                binding.layoutPage3.tvVolumeDiscountHint.setVisibility(View.GONE);
+            }
+
             if (state.getDiscountMessage() != null) {
                 binding.layoutPage3.tvDiscountMessage.setVisibility(View.VISIBLE);
                 binding.layoutPage3.tvDiscountMessage.setText(state.getDiscountMessage());

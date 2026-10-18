@@ -137,6 +137,24 @@
         app:layout_constraintEnd_toStartOf="@+id/btnQtyPlus"
         app:layout_constraintStart_toEndOf="@+id/btnQtyMinus"
         app:layout_constraintTop_toTopOf="@+id/guidePage3Qty" />
+
+    <!-- Dòng thông báo ưu đãi số lượng (Ví dụ: Từ 2 tấm chỉ còn 26k/tấm) -->
+    <TextView
+        android:id="@+id/tvVolumeDiscountHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:textColor="#E65100"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/tvQtyValue"
+        tools:text="🎉 Đã áp dụng ưu đãi: 26.000đ/tấm (từ 2 tấm)"
+        tools:visibility="visible" />
+
     <androidx.constraintlayout.widget.Guideline
         android:id="@+id/guidePage3Total"
         android:layout_width="wrap_content"

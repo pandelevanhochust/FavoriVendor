@@ -13,6 +13,8 @@ public class PriceManager {
     private static final String KEY_PRICE_1 = "price_package_1";
     private static final String KEY_PRICE_2 = "price_package_2";
     private static final String KEY_PRICE_3 = "price_package_3";
+    private static final String KEY_PRICE_VERSION = "price_config_version";
+    private static final int CURRENT_PRICE_VERSION = 2;
 
     private static PriceManager instance;
     private final SharedPreferences prefs;
@@ -28,6 +30,16 @@ public class PriceManager {
     private PriceManager(Context context) {
         this.prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
         this.defaultPrices = parseDefaultAmounts(BuildConfig.DEMO_AMOUNTS);
+
+        int savedVer = prefs.getInt(KEY_PRICE_VERSION, 1);
+        if (savedVer < CURRENT_PRICE_VERSION) {
+            prefs.edit()
+                    .putInt(KEY_PRICE_VERSION, CURRENT_PRICE_VERSION)
+                    .putLong(KEY_PRICE_1, defaultPrices.get(0))
+                    .putLong(KEY_PRICE_2, defaultPrices.get(1))
+                    .putLong(KEY_PRICE_3, defaultPrices.get(2))
+                    .apply();
+        }
     }
 
     private List<Long> parseDefaultAmounts(String raw) {
@@ -41,7 +53,7 @@ public class PriceManager {
             }
         }
         if (out.size() < 3) {
-            return Arrays.asList(80_000L, 100_000L, 200_000L);
+            return Arrays.asList(29_000L, 200_000L, 39_000L);
         }
         return out;
     }
