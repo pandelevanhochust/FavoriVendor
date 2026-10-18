@@ -51,6 +51,38 @@
             app:icon="@android:drawable/ic_menu_add"
             app:iconGravity="textStart" />
 
+        <!-- Nút Cài đặt mức giá các gói chụp -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPackagePrices"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginBottom="8dp"
+            android:text="Cài đặt mức giá các gói chụp"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            app:backgroundTint="#850000"
+            app:cornerRadius="10dp"
+            app:icon="@android:drawable/ic_menu_edit"
+            app:iconGravity="textStart" />
+
+        <!-- Nút Thay đổi Server URL (Yêu cầu PIN 1112) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnChangeServerUrl"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginBottom="12dp"
+            android:text="Thay đổi Server URL (kiosk.serverUrl)"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            app:backgroundTint="#850000"
+            app:cornerRadius="10dp"
+            app:icon="@android:drawable/ic_menu_preferences"
+            app:iconGravity="textStart" />
+
         <TextView
             android:id="@+id/tvLink"
             android:layout_width="match_parent"

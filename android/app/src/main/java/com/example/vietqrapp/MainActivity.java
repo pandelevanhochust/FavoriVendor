@@ -148,6 +148,7 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         KioskApp.get().billAcceptor().connect();
         viewModel.reassertCashState();
+        viewModel.reloadPrices();
     }
 
     @Override
@@ -192,8 +193,13 @@ public class MainActivity extends AppCompatActivity {
 
         long amount = state.getSelectedAmount() != null ? state.getSelectedAmount() : state.getSubtotal();
 
-        // 2. PAGE 2: Chọn gói chụp (hiển thị tick box dạng circle + viền bọc quanh mức giá và tickbox)
+        // 2. PAGE 2: Chọn gói chụp (hiển thị giá cập nhật + tick box dạng circle + viền bọc)
         if (status == PaymentUiState.Status.HOME) {
+            PriceManager pm = PriceManager.getInstance(this);
+            binding.layoutPage2.tvPricePackage1.setText(formatVnd(pm.getPrice(0)));
+            binding.layoutPage2.tvPricePackage2.setText(formatVnd(pm.getPrice(1)));
+            binding.layoutPage2.tvPricePackage3.setText(formatVnd(pm.getPrice(2)));
+
             int selected = state.getSelectedPackageIndex();
             binding.layoutPage2.ivCheckPackage1.setImageResource(
                     selected == 0 ? R.drawable.ic_circle_checked : R.drawable.ic_circle_unchecked);

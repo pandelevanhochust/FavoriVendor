@@ -45,7 +45,7 @@ public class DiscountsActivity extends AppCompatActivity {
         binding = ActivityDiscountsBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        kioskRepository = new KioskRepository();
+        kioskRepository = KioskApp.get().kioskRepository();
         adapter = new DiscountsAdapter();
         binding.rvDiscounts.setLayoutManager(new LinearLayoutManager(this));
         binding.rvDiscounts.setAdapter(adapter);

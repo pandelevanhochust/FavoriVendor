@@ -48,6 +48,12 @@ public class DiagnosticsActivity extends AppCompatActivity implements BillAccept
             startActivity(new Intent(this, DiscountsActivity.class));
         });
 
+        // Cài đặt mức giá các gói chụp (Page 2)
+        b.btnPackagePrices.setOnClickListener(v -> showEditPricesDialog());
+
+        // Thay đổi Server URL (Yêu cầu mã PIN 1112)
+        b.btnChangeServerUrl.setOnClickListener(v -> promptServerUrlPin());
+
         b.spParity.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
                 new String[]{"Parity: None", "Parity: Even", "Parity: Odd"}));
 
@@ -250,5 +256,150 @@ public class DiagnosticsActivity extends AppCompatActivity implements BillAccept
         String next = line + "\n" + old;
         if (next.length() > MAX_LOG_CHARS) next = next.substring(0, MAX_LOG_CHARS);
         b.tvLog.setText(next);
+    }
+
+    private void showEditPricesDialog() {
+        android.view.View dialogView = getLayoutInflater().inflate(R.layout.dialog_edit_package_prices, null);
+        android.widget.EditText etPrice1 = dialogView.findViewById(R.id.etPricePkg1);
+        android.widget.EditText etPrice2 = dialogView.findViewById(R.id.etPricePkg2);
+        android.widget.EditText etPrice3 = dialogView.findViewById(R.id.etPricePkg3);
+        com.google.android.material.button.MaterialButton btnReset = dialogView.findViewById(R.id.btnResetDefaultPrices);
+        com.google.android.material.button.MaterialButton btnCancel = dialogView.findViewById(R.id.btnCancelPriceModal);
+        com.google.android.material.button.MaterialButton btnSave = dialogView.findViewById(R.id.btnSavePrices);
+
+        PriceManager pm = PriceManager.getInstance(this);
+        etPrice1.setText(String.valueOf(pm.getPrice(0)));
+        etPrice2.setText(String.valueOf(pm.getPrice(1)));
+        etPrice3.setText(String.valueOf(pm.getPrice(2)));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(dialogView)
+                .setCancelable(false)
+                .create();
+
+        btnReset.setOnClickListener(v -> {
+            List<Long> defs = pm.getDefaultPrices();
+            etPrice1.setText(String.valueOf(defs.get(0)));
+            etPrice2.setText(String.valueOf(defs.get(1)));
+            etPrice3.setText(String.valueOf(defs.get(2)));
+            Toast.makeText(this, "Đã điền lại mức giá mặc định", Toast.LENGTH_SHORT).show();
+        });
+
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+
+        btnSave.setOnClickListener(v -> {
+            String s1 = etPrice1.getText().toString().trim();
+            String s2 = etPrice2.getText().toString().trim();
+            String s3 = etPrice3.getText().toString().trim();
+
+            if (s1.isEmpty() || s2.isEmpty() || s3.isEmpty()) {
+                Toast.makeText(this, "Vui lòng nhập đầy đủ giá cho cả 3 gói", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            long p1, p2, p3;
+            try {
+                p1 = Long.parseLong(s1);
+                p2 = Long.parseLong(s2);
+                p3 = Long.parseLong(s3);
+            } catch (NumberFormatException e) {
+                Toast.makeText(this, "Giá tiền không hợp lệ", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            if (p1 <= 0 || p2 <= 0 || p3 <= 0) {
+                Toast.makeText(this, "Giá các gói phải lớn hơn 0 VND", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            pm.setPrices(p1, p2, p3);
+            Toast.makeText(this, "Đã lưu cài đặt giá gói chụp thành công!", Toast.LENGTH_LONG).show();
+            dialog.dismiss();
+        });
+
+        dialog.show();
+    }
+
+    private void promptServerUrlPin() {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        input.setGravity(android.view.Gravity.CENTER);
+        input.setTextSize(22);
+        input.setLetterSpacing(0.2f);
+        input.setHint("Nhập mã PIN");
+
+        android.widget.FrameLayout container = new android.widget.FrameLayout(this);
+        android.widget.FrameLayout.LayoutParams params = new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        int margin = (int) (24 * getResources().getDisplayMetrics().density);
+        params.leftMargin = margin;
+        params.rightMargin = margin;
+        params.topMargin = margin / 2;
+        params.bottomMargin = margin / 2;
+        input.setLayoutParams(params);
+        container.addView(input);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Xác thực quản trị viên")
+                .setMessage("Vui lòng nhập mã PIN bảo mật để thay đổi Server URL:")
+                .setView(container)
+                .setPositiveButton("Xác nhận", (d, w) -> {
+                    String enteredPin = input.getText().toString().trim();
+                    if ("1112".equals(enteredPin)) {
+                        showEditServerUrlDialog();
+                    } else {
+                        Toast.makeText(this, "Mã PIN không chính xác! Không có quyền thay đổi Server URL.", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("Hủy", null)
+                .show();
+    }
+
+    private void showEditServerUrlDialog() {
+        android.view.View dialogView = getLayoutInflater().inflate(R.layout.dialog_edit_server_url, null);
+        android.widget.EditText etUrl = dialogView.findViewById(R.id.etServerUrl);
+        com.google.android.material.button.MaterialButton btnReset = dialogView.findViewById(R.id.btnResetDefaultUrl);
+        com.google.android.material.button.MaterialButton btnCancel = dialogView.findViewById(R.id.btnCancelUrlModal);
+        com.google.android.material.button.MaterialButton btnSave = dialogView.findViewById(R.id.btnSaveServerUrl);
+
+        ServerConfigManager scm = ServerConfigManager.getInstance(this);
+        etUrl.setText(scm.getServerUrl());
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(dialogView)
+                .setCancelable(false)
+                .create();
+
+        btnReset.setOnClickListener(v -> {
+            etUrl.setText(scm.getDefaultServerUrl());
+            Toast.makeText(this, "Đã điền lại Server URL mặc định", Toast.LENGTH_SHORT).show();
+        });
+
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+
+        btnSave.setOnClickListener(v -> {
+            String newUrl = etUrl.getText().toString().trim();
+            if (newUrl.isEmpty()) {
+                Toast.makeText(this, "Vui lòng nhập địa chỉ Server URL", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            if (!newUrl.startsWith("http://") && !newUrl.startsWith("https://")) {
+                Toast.makeText(this, "Server URL phải bắt đầu bằng http:// hoặc https://", Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            if (!newUrl.endsWith("/")) {
+                newUrl += "/";
+            }
+
+            scm.setServerUrl(newUrl);
+            KioskApp.get().kioskRepository().reloadBaseUrl();
+
+            Toast.makeText(this, "Đã cập nhật Server URL thành công:\n" + newUrl, Toast.LENGTH_LONG).show();
+            dialog.dismiss();
+        });
+
+        dialog.show();
     }
 }

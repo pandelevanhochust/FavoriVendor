@@ -40,14 +40,31 @@
             android:scaleType="fitCenter"
             android:src="@drawable/page2_btn1" />
 
-        <!-- Tick box dạng circle dưới mức giá 1 -->
-        <ImageView
-            android:id="@+id/ivCheckPackage1"
-            android:layout_width="26dp"
-            android:layout_height="26dp"
+        <!-- Tick box dạng circle + Giá tiền gói 1 -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:contentDescription="Chọn gói 1"
-            android:src="@drawable/ic_circle_checked" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/ivCheckPackage1"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:contentDescription="Chọn gói 1"
+                android:src="@drawable/ic_circle_checked" />
+
+            <TextView
+                android:id="@+id/tvPricePackage1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textColor="#850000"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:text="80.000đ" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- HÀNG 1 - GÓI 2 (Bên phải) -->
@@ -77,14 +94,31 @@
             android:scaleType="fitCenter"
             android:src="@drawable/page2_btn2" />
 
-        <!-- Tick box dạng circle dưới mức giá 2 -->
-        <ImageView
-            android:id="@+id/ivCheckPackage2"
-            android:layout_width="26dp"
-            android:layout_height="26dp"
+        <!-- Tick box dạng circle + Giá tiền gói 2 -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:contentDescription="Chọn gói 2"
-            android:src="@drawable/ic_circle_unchecked" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/ivCheckPackage2"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:contentDescription="Chọn gói 2"
+                android:src="@drawable/ic_circle_unchecked" />
+
+            <TextView
+                android:id="@+id/tvPricePackage2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textColor="#850000"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:text="100.000đ" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- HÀNG 2 - GÓI 3 (Thẳng hàng phía dưới Gói 1, bên phải để trống) -->
@@ -112,14 +146,31 @@
             android:scaleType="fitCenter"
             android:src="@drawable/page2_btn3" />
 
-        <!-- Tick box dạng circle dưới mức giá 3 -->
-        <ImageView
-            android:id="@+id/ivCheckPackage3"
-            android:layout_width="26dp"
-            android:layout_height="26dp"
+        <!-- Tick box dạng circle + Giá tiền gói 3 -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:contentDescription="Chọn gói 3"
-            android:src="@drawable/ic_circle_unchecked" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/ivCheckPackage3"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:contentDescription="Chọn gói 3"
+                android:src="@drawable/ic_circle_unchecked" />
+
+            <TextView
+                android:id="@+id/tvPricePackage3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textColor="#850000"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:text="200.000đ" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Hai nút bottom: lùi xuống sâu hơn (Y = 89.0%) theo yêu cầu -->

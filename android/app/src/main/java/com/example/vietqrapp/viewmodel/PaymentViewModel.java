@@ -60,14 +60,11 @@ public class PaymentViewModel extends ViewModel {
     private final BillAcceptorManager acceptor;
     private final SharedPreferences cashPrefs;
     private final KioskDbHelper dbHelper;
+    private final com.example.vietqrapp.PriceManager priceManager;
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private final MutableLiveData<PaymentUiState> uiState = new MutableLiveData<>(new PaymentUiState());
     private final MutableLiveData<PaidEvent> paidEvent = new MutableLiveData<>();
-
-    // Mức giá demo, đặt bằng kiosk.amounts trong local.properties (mặc định 10000,20000).
-    // Máy VND6 chỉ nhận tờ từ 10.000 VND, nên mức dưới 10.000 chỉ thanh toán được bằng chuyển khoản.
-    private final List<Long> amounts = parseAmounts(BuildConfig.DEMO_AMOUNTS);
 
     // --- chuyển khoản ---
     private int generation;
@@ -162,7 +159,7 @@ public class PaymentViewModel extends ViewModel {
     };
 
     public PaymentViewModel() {
-        this(new KioskRepository(), KioskApp.get().billAcceptor());
+        this(KioskApp.get().kioskRepository(), KioskApp.get().billAcceptor());
     }
 
     public PaymentViewModel(KioskRepository repository, BillAcceptorManager acceptor) {
@@ -170,6 +167,7 @@ public class PaymentViewModel extends ViewModel {
         this.acceptor = acceptor;
         this.cashPrefs = KioskApp.get().getSharedPreferences("cash_session", Context.MODE_PRIVATE);
         this.dbHelper = KioskDbHelper.getInstance(KioskApp.get());
+        this.priceManager = com.example.vietqrapp.PriceManager.getInstance(KioskApp.get());
 
         PaymentUiState init = new PaymentUiState();
         init.setCashReady(acceptor.isReady());
@@ -184,27 +182,27 @@ public class PaymentViewModel extends ViewModel {
 
     public LiveData<PaidEvent> getPaidEvent() { return paidEvent; }
 
-    public List<Long> getAmounts() { return amounts; }
+    public List<Long> getAmounts() { return priceManager.getAllPrices(); }
+
+    public void reloadPrices() {
+        PaymentUiState s = current().copy();
+        List<Long> curPrices = priceManager.getAllPrices();
+        int idx = s.getSelectedPackageIndex();
+        if (idx < 0 || idx >= curPrices.size()) idx = 0;
+        s.setSelectedPackageIndex(idx);
+        s.setUnitPrice(curPrices.get(idx));
+        if (s.getStatus() == PaymentUiState.Status.HOME) {
+            s.setSelectedAmount(curPrices.get(idx));
+            uiState.setValue(s);
+        } else if (s.getStatus() == PaymentUiState.Status.QUANTITY_DISCOUNT) {
+            recalculateTotal(s);
+            uiState.setValue(s);
+        }
+    }
 
     private PaymentUiState current() {
         PaymentUiState s = uiState.getValue();
         return s != null ? s : new PaymentUiState();
-    }
-
-    private static List<Long> parseAmounts(String raw) {
-        List<Long> out = new java.util.ArrayList<>();
-        if (raw != null) {
-            for (String part : raw.split(",")) {
-                try {
-                    long v = Long.parseLong(part.trim());
-                    if (v > 0) out.add(v);
-                } catch (NumberFormatException ignored) {
-                    // bỏ giá trị sai
-                }
-            }
-        }
-        if (out.isEmpty()) return Arrays.asList(80_000L, 100_000L, 200_000L);
-        return out;
     }
 
     private static String fmt(long vnd) {
@@ -216,36 +214,40 @@ public class PaymentViewModel extends ViewModel {
     public void goToPage2() {
         PaymentUiState s = current().copy();
         s.setStatus(PaymentUiState.Status.HOME);
-        if (amounts != null && !amounts.isEmpty()) {
+        List<Long> curPrices = priceManager.getAllPrices();
+        if (!curPrices.isEmpty()) {
             s.setSelectedPackageIndex(0);
-            s.setUnitPrice(amounts.get(0));
-            s.setSelectedAmount(amounts.get(0));
+            s.setUnitPrice(curPrices.get(0));
+            s.setSelectedAmount(curPrices.get(0));
         }
         s.setMessage(null);
         uiState.setValue(s);
     }
 
     public void selectPackage(int index) {
-        if (amounts == null || index < 0 || index >= amounts.size()) return;
+        List<Long> curPrices = priceManager.getAllPrices();
+        if (index < 0 || index >= curPrices.size()) return;
         PaymentUiState s = current().copy();
         s.setSelectedPackageIndex(index);
-        s.setUnitPrice(amounts.get(index));
-        s.setSelectedAmount(amounts.get(index));
+        s.setUnitPrice(curPrices.get(index));
+        s.setSelectedAmount(curPrices.get(index));
         uiState.setValue(s);
     }
 
     public void proceedToQuantityDiscount() {
         PaymentUiState s = current().copy();
-        if (s.getUnitPrice() <= 0 && amounts != null && !amounts.isEmpty()) {
-            s.setUnitPrice(amounts.get(0));
-            s.setSelectedPackageIndex(0);
-        }
+        List<Long> curPrices = priceManager.getAllPrices();
+        int idx = s.getSelectedPackageIndex();
+        if (idx < 0 || idx >= curPrices.size()) idx = 0;
+        long unitPrice = curPrices.get(idx);
+        s.setUnitPrice(unitPrice);
+        s.setSelectedPackageIndex(idx);
         s.setStatus(PaymentUiState.Status.QUANTITY_DISCOUNT);
         s.setQuantity(1);
         s.setDiscountCode(null);
         s.setDiscountAmount(0);
         s.setDiscountMessage(null);
-        s.setSelectedAmount(s.getUnitPrice());
+        s.setSelectedAmount(unitPrice);
         s.setMessage(null);
         uiState.setValue(s);
     }
@@ -265,10 +267,9 @@ public class PaymentViewModel extends ViewModel {
         PaymentUiState s = current().copy();
         s.setUnitPrice(unitPrice);
         s.setSelectedAmount(unitPrice);
-        if (amounts != null) {
-            int idx = amounts.indexOf(unitPrice);
-            if (idx >= 0) s.setSelectedPackageIndex(idx);
-        }
+        List<Long> curPrices = priceManager.getAllPrices();
+        int idx = curPrices.indexOf(unitPrice);
+        if (idx >= 0) s.setSelectedPackageIndex(idx);
         uiState.setValue(s);
     }
 

@@ -29,10 +29,14 @@ public class KioskRepository {
         void onError(String message);
     }
 
-    private final KioskApiService api;
+    private volatile KioskApiService api;
     private final Gson gson = new Gson();
 
     public KioskRepository() {
+        reloadBaseUrl();
+    }
+
+    public synchronized void reloadBaseUrl() {
         OkHttpClient.Builder client = new OkHttpClient.Builder()
                 .connectTimeout(10, TimeUnit.SECONDS)
                 // Phải lớn hơn thời gian long-poll (20s) để request chờ không bị coi là timeout.
@@ -50,8 +54,8 @@ public class KioskRepository {
             client.addInterceptor(logging);
         }
 
-        String baseUrl = BuildConfig.SERVER_BASE_URL;
-        if (!baseUrl.endsWith("/")) baseUrl = baseUrl + "/";
+        String baseUrl = com.example.vietqrapp.ServerConfigManager.getInstance(
+                com.example.vietqrapp.KioskApp.get()).getServerUrl();
 
         api = new Retrofit.Builder()
                 .baseUrl(baseUrl)
