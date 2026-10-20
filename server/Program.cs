@@ -139,6 +139,15 @@ builder.Services
     });
 
 builder.Services.AddOpenApi();
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
 
 // ------------------------------------------------------------------ Authentication (VietQR API Callback)
 // JWT chỉ dùng cho chiều VietQR -> server (Transaction Sync). Không dùng MQTT.
@@ -169,6 +178,8 @@ builder.Services
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+app.UseCors();
 
 // Cấu hình OpenAPI & Scalar API Reference
 app.MapOpenApi();
