@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.HttpOverrides;
 using Scalar.AspNetCore;
 using VietQrKiosk.Server.Config;
 using VietQrKiosk.Server.Controllers;
@@ -138,7 +139,23 @@ builder.Services
         o.JsonSerializerOptions.NumberHandling = JsonNumberHandling.AllowReadingFromString;
     });
 
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer((document, context, cancellationToken) =>
+    {
+        if (document.Servers != null)
+        {
+            foreach (var server in document.Servers)
+            {
+                if (server.Url != null && server.Url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !server.Url.Contains("localhost"))
+                {
+                    server.Url = "https://" + server.Url.Substring("http://".Length);
+                }
+            }
+        }
+        return Task.CompletedTask;
+    });
+});
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -178,6 +195,14 @@ builder.Services
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+var forwardedHeadersOptions = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+};
+forwardedHeadersOptions.KnownIPNetworks.Clear();
+forwardedHeadersOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedHeadersOptions);
 
 app.UseCors();
 
