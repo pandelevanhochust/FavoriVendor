@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using VietQrKiosk.Server.Config;
+using VietQrKiosk.Server.Entities;
 using VietQrKiosk.Server.Infra.Repositories;
 using VietQrKiosk.Server.Models;
 using VietQrKiosk.Server.Services.Interfaces;
@@ -32,7 +33,13 @@ public class KioskDevController : ControllerBase
     [HttpPost("simulate-payment/{orderId}")]
     public async Task<IActionResult> SimulatePayment(string orderId, CancellationToken ct)
     {
-        var order = await _orderRepo.GetByIdAsync(orderId, asNoTracking: true, ct);
+        var order = await _orderRepo.GetByIdAsync(orderId, asNoTracking: false, ct);
+        if (order != null && order.Status == OrderStatus.Expired)
+        {
+            order.Status = OrderStatus.Pending;
+            order.ExpiresAt = DateTime.UtcNow.AddMinutes(5);
+            await _orderRepo.SaveChangesAsync(ct);
+        }
         if (order == null) return NotFound(new ErrorBody("Không tìm thấy đơn"));
 
         await _processor.ProcessAsync(new TransactionCallback
