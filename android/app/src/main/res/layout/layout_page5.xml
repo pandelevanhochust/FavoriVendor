@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/background_page5"
+    android:clickable="true"
+    android:focusable="true">
+
+    <!-- Khoảng trống giữa "Số thứ tự của bạn là:" và "Cảm ơn bạn...": Y = 56.2% -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidePage5Center"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.562" />
+
+    <!-- Dòng chữ số thứ tự được giảm kích thước (36sp) cân đối đẹp mắt với ảnh background -->
+    <TextView
+        android:id="@+id/tvQueueNumber"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:fontFamily="sans-serif-medium"
+        android:textColor="#850000"
+        android:textSize="36sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/guidePage5Center"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/guidePage5Center"
+        tools:text="#05" />
+
+    <TextView
+        android:id="@+id/tvSuccessMethod"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textColor="#666666"
+        android:textSize="14sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/tvQueueNumber"
+        tools:text="Chuyển khoản VietQR" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

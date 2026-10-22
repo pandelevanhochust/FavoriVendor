@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using VietQrKiosk.Server.Config;
-using VietQrKiosk.Server.Data;
+using VietQrKiosk.Server.Entities;
 using VietQrKiosk.Server.Models;
 
 namespace VietQrKiosk.Server.Services;
@@ -64,17 +64,21 @@ public static class Helpers
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    public static OrderDto ToDto(Order o, DateTime nowUtc)
+    public static OrderDto ToDto(Order o, DateTime nowUtc, BankTransactionDto? txn = null)
     {
         var remaining = (int)Math.Max(0, (o.ExpiresAt - nowUtc).TotalSeconds);
         return new OrderDto(
-            o.OrderId,
-            o.Status.ToString().ToUpperInvariant(),
-            o.Amount,
-            o.QrCode,
-            o.QrContent,
-            remaining,
-            o.PaidAt);
+            OrderId: o.OrderId,
+            Status: o.Status.ToString().ToUpperInvariant(),
+            Amount: o.Amount,
+            OriginalAmount: o.OriginalAmount,
+            DiscountAmount: o.DiscountAmount,
+            DiscountCode: o.DiscountCode,
+            QrCode: o.QrCode,
+            Content: o.QrContent,
+            ExpiresInSeconds: remaining,
+            PaidAt: o.PaidAt,
+            Transaction: txn);
     }
 
     public static void Require(bool ok, string message)

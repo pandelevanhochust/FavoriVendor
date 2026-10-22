@@ -2,23 +2,77 @@ using System.Text.Json.Serialization;
 
 namespace VietQrKiosk.Server.Models;
 
-// ---------- API cho app Android (máy) ----------
+// ---------- API cho máy Kiosk (Android) ----------
 
-public record CreateOrderRequest(long Amount, string? DeviceId);
+public record CreateOrderRequest(
+    long Amount,
+    string? DeviceId = "1",
+    string? DiscountCode = null);
 
 /// <summary>Trạng thái: PENDING | PAID | EXPIRED | CANCELLED | REVIEW</summary>
 public record OrderDto(
     string OrderId,
     string Status,
     long Amount,
+    long OriginalAmount,
+    long DiscountAmount,
+    string? DiscountCode,
     string? QrCode,
     string? Content,
     int ExpiresInSeconds,
-    DateTime? PaidAt);
+    DateTime? PaidAt,
+    BankTransactionDto? Transaction = null);
+
+public record ValidateDiscountRequest(
+    string Code,
+    long Amount);
+
+public record ValidateDiscountResponse(
+    bool IsValid,
+    string? Message,
+    string? Code,
+    long OriginalAmount,
+    long DiscountAmount,
+    long FinalAmount);
+
+public record DiscountSummaryDto(
+    string Code,
+    string Description,
+    string Type,
+    long Value,
+    long? MinOrderAmount,
+    long? MaxDiscountAmount,
+    DateTime? EndDateUtc);
+
+public record CreateDiscountRequest(
+    string Code,
+    string? Description,
+    string Type,
+    long Value,
+    long? MinOrderAmount = null,
+    long? MaxDiscountAmount = null,
+    int? UsageLimit = null,
+    DateTime? EndDateUtc = null,
+    long? ExpiresAtMs = null);
+
+public record SyncCashTransactionRequest(
+    string OrderId,
+    long Amount,
+    long UnitPrice,
+    int Quantity,
+    string? DiscountCode,
+    long DiscountAmount,
+    long CreatedAt,
+    string? DeviceId = "1");
+
+public record SyncCashTransactionResponse(
+    bool Success,
+    string OrderId,
+    string Message);
 
 public record ErrorBody(string Message);
 
-// ---------- API server cung cấp cho VietQR gọi vào ----------
+// ---------- API server cung cấp cho VietQR gọi vào (HTTP API Callback) ----------
 
 /// <summary>Response của API Get Token (đối tác) theo tài liệu VietQR.</summary>
 public record TokenResponse(
@@ -65,3 +119,19 @@ public class VietQrGenerateDto
     public string? Status { get; set; }   // "FAILED" khi lỗi
     public string? Message { get; set; }  // mã lỗi, vd E34
 }
+
+// ---------- DTO xem lịch sử giao dịch (PostgreSQL) ----------
+
+public record BankTransactionDto(
+    long Id,
+    string TransactionId,
+    string RefTransactionId,
+    string? ReferenceNumber,
+    long Amount,
+    string? Content,
+    string? BankAccount,
+    string TransType,
+    string? OrderId,
+    string Result,
+    long TransactionTimeMs,
+    DateTime ReceivedAt);

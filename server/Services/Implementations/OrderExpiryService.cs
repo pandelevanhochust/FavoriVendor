@@ -1,16 +1,17 @@
-using Microsoft.EntityFrameworkCore;
-using VietQrKiosk.Server.Data;
+using VietQrKiosk.Server.Entities;
+using VietQrKiosk.Server.Infra.Repositories;
+using VietQrKiosk.Server.Services.Interfaces;
 
-namespace VietQrKiosk.Server.Services;
+namespace VietQrKiosk.Server.Services.Implementations;
 
-/// <summary>Định kỳ chuyển các đơn PENDING quá hạn sang EXPIRED và đánh thức app đang chờ.</summary>
+/// <summary>Định kỳ chuyển các đơn PENDING quá hạn sang EXPIRED và đánh thức kiosk đang chờ.</summary>
 public class OrderExpiryService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopes;
-    private readonly OrderNotifier _notifier;
+    private readonly IOrderNotifier _notifier;
     private readonly ILogger<OrderExpiryService> _log;
 
-    public OrderExpiryService(IServiceScopeFactory scopes, OrderNotifier notifier, ILogger<OrderExpiryService> log)
+    public OrderExpiryService(IServiceScopeFactory scopes, IOrderNotifier notifier, ILogger<OrderExpiryService> log)
     {
         _scopes = scopes;
         _notifier = notifier;
@@ -37,26 +38,15 @@ public class OrderExpiryService : BackgroundService
     private async Task TickAsync(CancellationToken ct)
     {
         using var scope = _scopes.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDb>();
+        var orderRepo = scope.ServiceProvider.GetRequiredService<IOrderRepository>();
         var now = DateTime.UtcNow;
 
-        var expired = await db.Orders
-            .Where(o => o.Status == OrderStatus.Pending && o.ExpiresAt < now)
-            .ToListAsync(ct);
+        var expired = await orderRepo.GetExpiredPendingOrdersAsync(now, ct);
         if (expired.Count == 0) return;
 
         foreach (var o in expired) o.Status = OrderStatus.Expired;
 
-        try
-        {
-            await db.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            // Có đơn vừa được trả tiền/huỷ đúng lúc này: bỏ lượt, vòng sau quét lại.
-            db.ChangeTracker.Clear();
-        }
-
+        await orderRepo.SaveChangesAsync(ct);
         foreach (var o in expired) _notifier.Notify(o.OrderId);
         _log.LogInformation("Đã quét {Count} đơn hết hạn", expired.Count);
     }

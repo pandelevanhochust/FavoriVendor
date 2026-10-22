@@ -1,10 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using VietQrKiosk.Server.Config;
-using VietQrKiosk.Server.Data;
+using VietQrKiosk.Server.Entities;
+using VietQrKiosk.Server.Infra.Repositories;
 using VietQrKiosk.Server.Models;
-using VietQrKiosk.Server.Services;
+using VietQrKiosk.Server.Services.Interfaces;
 
 namespace VietQrKiosk.Server.Controllers;
 
@@ -12,32 +12,48 @@ namespace VietQrKiosk.Server.Controllers;
 /// Chỉ môi trường Development: giả lập khách đã chuyển khoản để thử app mà không cần VietQR.
 /// </summary>
 [ApiController]
-[Route("kiosk/dev")]
+[Route("vendor/dev")]
 [KioskApiKey]
-public class KioskDevController(
-    AppDb db,
-    PaymentProcessor processor,
-    IOptions<VietQrOptions> vietQrOptions) : ControllerBase
+public class KioskDevController : ControllerBase
 {
+    private readonly IOrderRepository _orderRepo;
+    private readonly IPaymentProcessor _processor;
+    private readonly VietQrOptions _vietQrOptions;
+
+    public KioskDevController(
+        IOrderRepository orderRepo,
+        IPaymentProcessor processor,
+        IOptions<VietQrOptions> vietQrOptions)
+    {
+        _orderRepo = orderRepo;
+        _processor = processor;
+        _vietQrOptions = vietQrOptions.Value;
+    }
+
     [HttpPost("simulate-payment/{orderId}")]
     public async Task<IActionResult> SimulatePayment(string orderId, CancellationToken ct)
     {
-        var order = await db.Orders.AsNoTracking().FirstOrDefaultAsync(o => o.OrderId == orderId, ct);
+        var order = await _orderRepo.GetByIdAsync(orderId, asNoTracking: false, ct);
+        if (order != null && order.Status == OrderStatus.Expired)
+        {
+            order.Status = OrderStatus.Pending;
+            order.ExpiresAt = DateTime.UtcNow.AddMinutes(5);
+            await _orderRepo.SaveChangesAsync(ct);
+        }
         if (order == null) return NotFound(new ErrorBody("Không tìm thấy đơn"));
 
-        await processor.ProcessAsync(new TransactionCallback
+        await _processor.ProcessAsync(new TransactionCallback
         {
             TransactionId = "SIM" + Guid.NewGuid().ToString("N"),
             TransactionTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             ReferenceNumber = "SIM",
-            Amount = order.Amount,
+            Amount = order.Amount, // số tiền thực tế cần thanh toán
             Content = order.QrContent,
-            BankAccount = vietQrOptions.Value.BankAccount,
+            BankAccount = _vietQrOptions.BankAccount,
             OrderId = order.OrderId,
             TransType = "C"
         }, ct);
 
-        return Ok(new { simulated = true });
+        return Ok(new { simulated = true, orderId = order.OrderId, amount = order.Amount });
     }
 }
-

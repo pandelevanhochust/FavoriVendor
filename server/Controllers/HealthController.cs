@@ -7,6 +7,14 @@ namespace VietQrKiosk.Server.Controllers;
 public class HealthController : ControllerBase
 {
     [HttpGet]
-    public IActionResult Get() => Ok(new { ok = true });
+    public IActionResult Get()
+    {
+        return Ok(new
+        {
+            ok = true,
+            status = "Healthy",
+            mode = "InMemory-Stateless",
+            timestamp = DateTime.UtcNow
+        });
+    }
 }
-

@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: vietqr-kiosk-server
+    runtime: docker
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: ./server
+    plan: free
+    region: singapore
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: PORT
+        value: 8080
+      - key: VietQr__BaseUrl
+        value: https://dev.vietqr.org/
+      - key: VietQr__BankCode
+        value: MB
+      - key: Callback__BasePath
+        value: vietqr
+      - key: Kiosk__OrderTtlSeconds
+        value: "300"
+      - key: VietQr__Username
+        sync: false
+      - key: VietQr__Password
+        sync: false
+      - key: VietQr__BankAccount
+        sync: false
+      - key: VietQr__AccountName
+        sync: false
+      - key: Callback__Username
+        sync: false
+      - key: Callback__Password
+        sync: false
+      - key: Callback__JwtSecret
+        generateValue: true
+      - key: Kiosk__ApiKey
+        generateValue: true
+

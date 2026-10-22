@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="Cài Đặt Mức Giá Gói Chụp"
+            android:textColor="#850000"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="16dp"
+            android:gravity="center"
+            android:text="Thay đổi mức giá hiển thị và tính tiền trên Page 2"
+            android:textColor="#757575"
+            android:textSize="13sp" />
+
+        <!-- Gói 1 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="1. Gói 1: In polaroid ảnh có sẵn (VND) - Từ 2 tấm: 26k/tấm"
+            android:textColor="#212121"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etPricePkg1"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:background="@android:drawable/editbox_background_normal"
+            android:hint="Ví dụ: 29000"
+            android:inputType="number"
+            android:padding="10dp"
+            android:textColor="#850000"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <!-- Gói 2 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="2. Gói 2: Chụp ảnh Selfbooth (VND)"
+            android:textColor="#212121"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etPricePkg2"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:background="@android:drawable/editbox_background_normal"
+            android:hint="Ví dụ: 200000"
+            android:inputType="number"
+            android:padding="10dp"
+            android:textColor="#850000"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <!-- Gói 3 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="3. Gói 3: Chụp ảnh Polaroid (VND) - Từ 3 tấm: 33k/tấm"
+            android:textColor="#212121"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etPricePkg3"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:background="@android:drawable/editbox_background_normal"
+            android:hint="Ví dụ: 39000"
+            android:inputType="number"
+            android:padding="10dp"
+            android:textColor="#850000"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="* Lưu ý: Máy nhận tiền mặt VND6 chỉ nhận các mệnh giá từ 10.000 VND trở lên."
+            android:textColor="#757575"
+            android:textSize="12sp" />
+
+        <!-- Nút Khôi phục mặc định -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnResetDefaultPrices"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:layout_marginTop="8dp"
+            android:text="Khôi phục mặc định"
+            android:textAllCaps="false"
+            android:textColor="#C62828"
+            android:textSize="13sp" />
+
+        <!-- Hàng nút hành động -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnCancelPriceModal"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:text="Hủy"
+                android:textAllCaps="false"
+                android:textColor="#555555"
+                app:cornerRadius="8dp"
+                app:strokeColor="#CCCCCC" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSavePrices"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="Lưu thay đổi"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                app:backgroundTint="#850000"
+                app:cornerRadius="8dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</ScrollView>
