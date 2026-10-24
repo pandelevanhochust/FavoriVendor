@@ -38,5 +38,72 @@ public class InMemoryOrderRepository : IOrderRepository
         return Task.FromResult(expired);
     }
 
+    public Task<List<Order>> GetOrdersFilteredAsync(
+        DateTime? fromUtc = null,
+        DateTime? toUtc = null,
+        OrderStatus? status = null,
+        string? paymentType = null,
+        int limit = 50,
+        int page = 1,
+        CancellationToken ct = default)
+    {
+        var query = _orders.Values.AsEnumerable();
+
+        if (fromUtc.HasValue)
+            query = query.Where(o => o.CreatedAt >= fromUtc.Value);
+
+        if (toUtc.HasValue)
+            query = query.Where(o => o.CreatedAt <= toUtc.Value);
+
+        if (status.HasValue)
+            query = query.Where(o => o.Status == status.Value);
+
+        if (!string.IsNullOrWhiteSpace(paymentType))
+        {
+            var pType = paymentType.Trim().ToLowerInvariant();
+            if (pType is "cash" or "tien_mat")
+                query = query.Where(o => o.QrContent == "CASH" || (o.BankTransactionId != null && o.BankTransactionId.StartsWith("CASH-")));
+            else if (pType is "bank" or "vietqr" or "transfer" or "chuyen_khoan")
+                query = query.Where(o => o.QrContent != "CASH" && (o.BankTransactionId == null || !o.BankTransactionId.StartsWith("CASH-")));
+        }
+
+        var p = Math.Max(1, page);
+        var take = Math.Clamp(limit, 1, 500);
+        var skip = (p - 1) * take;
+
+        var list = query.OrderByDescending(o => o.CreatedAt).Skip(skip).Take(take).ToList();
+        return Task.FromResult(list);
+    }
+
+    public Task<int> CountOrdersFilteredAsync(
+        DateTime? fromUtc = null,
+        DateTime? toUtc = null,
+        OrderStatus? status = null,
+        string? paymentType = null,
+        CancellationToken ct = default)
+    {
+        var query = _orders.Values.AsEnumerable();
+
+        if (fromUtc.HasValue)
+            query = query.Where(o => o.CreatedAt >= fromUtc.Value);
+
+        if (toUtc.HasValue)
+            query = query.Where(o => o.CreatedAt <= toUtc.Value);
+
+        if (status.HasValue)
+            query = query.Where(o => o.Status == status.Value);
+
+        if (!string.IsNullOrWhiteSpace(paymentType))
+        {
+            var pType = paymentType.Trim().ToLowerInvariant();
+            if (pType is "cash" or "tien_mat")
+                query = query.Where(o => o.QrContent == "CASH" || (o.BankTransactionId != null && o.BankTransactionId.StartsWith("CASH-")));
+            else if (pType is "bank" or "vietqr" or "transfer" or "chuyen_khoan")
+                query = query.Where(o => o.QrContent != "CASH" && (o.BankTransactionId == null || !o.BankTransactionId.StartsWith("CASH-")));
+        }
+
+        return Task.FromResult(query.Count());
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
