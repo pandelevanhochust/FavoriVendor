@@ -171,4 +171,31 @@ public class OrderService : IOrderService
             ReceivedAt: txn.ReceivedAt
         );
     }
+
+    public async Task<(List<OrderDto> Items, int TotalCount)> GetOrdersFilteredAsync(
+        DateTime? fromUtc,
+        DateTime? toUtc,
+        OrderStatus? status,
+        string? paymentType,
+        int limit,
+        int page,
+        CancellationToken ct)
+    {
+        var count = Math.Clamp(limit, 1, 200);
+        var pageNum = Math.Max(1, page);
+
+        var orders = await _orderRepo.GetOrdersFilteredAsync(fromUtc, toUtc, status, paymentType, count, pageNum, ct);
+        var totalCount = await _orderRepo.CountOrdersFilteredAsync(fromUtc, toUtc, status, paymentType, ct);
+
+        var now = DateTime.UtcNow;
+        var dtos = new List<OrderDto>(orders.Count);
+
+        foreach (var order in orders)
+        {
+            var txnDto = await GetTransactionDtoAsync(order, ct);
+            dtos.Add(Helpers.ToDto(order, now, txnDto));
+        }
+
+        return (dtos, totalCount);
+    }
 }
