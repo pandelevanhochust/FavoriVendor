@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vietqr-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kiosk_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-vietqr_kiosk}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kiosk_user} -d ${POSTGRES_DB:-vietqr_kiosk}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vietqr-network
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: vietqr-server
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - PORT=8080
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=${POSTGRES_DB:-vietqr_kiosk};Username=${POSTGRES_USER:-kiosk_user};Password=${POSTGRES_PASSWORD}
+      - VietQr__BaseUrl=${VietQr__BaseUrl:-https://dev.vietqr.org/}
+      - VietQr__BankCode=${VietQr__BankCode:-MB}
+      - VietQr__BankAccount=${VietQr__BankAccount}
+      - VietQr__AccountName=${VietQr__AccountName}
+      - VietQr__Username=${VietQr__Username}
+      - VietQr__Password=${VietQr__Password}
+      - Callback__BasePath=${Callback__BasePath:-vietqr}
+      - Callback__Username=${Callback__Username}
+      - Callback__Password=${Callback__Password}
+      - Callback__JwtSecret=${Callback__JwtSecret}
+      - Kiosk__ApiKey=${Kiosk__ApiKey}
+      - Kiosk__OrderTtlSeconds=${Kiosk__OrderTtlSeconds:-300}
+    volumes:
+      - server_data:/app/data
+    networks:
+      - vietqr-network
+
+  frontend:
+    build:
+      context: ./fe
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_KIOSK_API_KEY: ${Kiosk__ApiKey}
+    container_name: vietqr-frontend
+    restart: always
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - server
+    networks:
+      - vietqr-network
+
+volumes:
+  postgres_data:
+  server_data:
+
+networks:
+  vietqr-network:
+    driver: bridge

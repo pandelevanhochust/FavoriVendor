@@ -125,11 +125,7 @@ public class PaymentViewModel extends ViewModel {
         @Override
         public void onBillRefused(int billType, int vnd, String reason) {
             if (current().getStatus() != PaymentUiState.Status.CASH) return;
-            long remaining = cashPrice - cashInserted;
-            // Chỉ nói "vượt số tiền" khi đúng là vậy; các lý do khác (lỗi máy, chưa gán mệnh giá...) dùng câu chung.
-            String text = vnd > 0 && vnd > remaining
-                    ? "Tờ " + fmt(vnd) + " vượt số tiền còn thiếu. Máy không thối tiền, vui lòng dùng tờ nhỏ hơn."
-                    : "Không nhận được tờ tiền này. Vui lòng thử lại hoặc dùng tờ khác.";
+            String text = "Không nhận được tờ tiền này. Vui lòng thử lại hoặc dùng tờ khác.";
             PaymentUiState s = current().copy();
             s.setMessage(text);
             uiState.setValue(s);
@@ -627,8 +623,8 @@ public class PaymentViewModel extends ViewModel {
     }
 
     private void enterCash(String message) {
-        // Chỉ nhận tờ có mệnh giá <= số tiền còn thiếu (máy không thối tiền).
-        acceptor.setEscrowPolicy(vnd -> vnd > 0 && vnd <= cashPrice - cashInserted);
+        // Cho phép nhận số tiền lớn hơn hoặc bằng giao dịch cần thiết (máy không thối tiền thừa).
+        acceptor.setEscrowPolicy(vnd -> vnd > 0);
         acceptor.setEnabled(true);
 
         PaymentUiState n = current().copy();
@@ -752,7 +748,7 @@ public class PaymentViewModel extends ViewModel {
     /** Gọi từ Activity khi quay lại màn chính (vd: sau khi thoát màn Chẩn đoán) để đặt lại trạng thái đầu nhận tiền. */
     public void reassertCashState() {
         if (current().getStatus() == PaymentUiState.Status.CASH) {
-            acceptor.setEscrowPolicy(vnd -> vnd > 0 && vnd <= cashPrice - cashInserted);
+            acceptor.setEscrowPolicy(vnd -> vnd > 0);
             acceptor.setEnabled(true);
         } else {
             acceptor.setEscrowPolicy(null);

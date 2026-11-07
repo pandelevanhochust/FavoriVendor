@@ -140,7 +140,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:gravity="center"
-            android:text="Máy không thối tiền.\nChỉ nhận tờ mệnh giá nhỏ hơn hoặc bằng số tiền còn thiếu."
+            android:text="Lưu ý: Máy không thối lại tiền thừa."
             android:textColor="#777777"
             android:textSize="12sp" />
 
