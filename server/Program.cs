@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.FileProviders;
 using Scalar.AspNetCore;
 using VietQrKiosk.Server.Config;
 using VietQrKiosk.Server.Controllers;
@@ -14,6 +15,7 @@ using VietQrKiosk.Server.Models;
 using VietQrKiosk.Server.Services;
 using VietQrKiosk.Server.Services.Implementations;
 using VietQrKiosk.Server.Services.Interfaces;
+
 // Tự động nạp biến môi trường từ .env nếu chạy local dotnet run
 var candidateEnvFiles = new[] { ".env", "../.env", Path.Combine(AppContext.BaseDirectory, ".env") };
 foreach (var envFile in candidateEnvFiles)
@@ -47,10 +49,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<VietQrOptions>(builder.Configuration.GetSection("VietQr"));
 builder.Services.Configure<CallbackOptions>(builder.Configuration.GetSection("Callback"));
 builder.Services.Configure<KioskOptions>(builder.Configuration.GetSection("Kiosk"));
+builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection(StorageOptions.SectionName));
 
 var vietQrCfg = builder.Configuration.GetSection("VietQr").Get<VietQrOptions>() ?? new VietQrOptions();
 var callbackCfg = builder.Configuration.GetSection("Callback").Get<CallbackOptions>() ?? new CallbackOptions();
 var kioskCfg = builder.Configuration.GetSection("Kiosk").Get<KioskOptions>() ?? new KioskOptions();
+var storageCfg = builder.Configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions();
 
 // Kiểm tra cấu hình bắt buộc
 Helpers.Require(!string.IsNullOrWhiteSpace(vietQrCfg.Username) && !string.IsNullOrWhiteSpace(vietQrCfg.Password),
@@ -63,6 +67,16 @@ Helpers.Require(callbackCfg.JwtSecret.Length >= 32, "Callback:JwtSecret (tối t
 Helpers.Require(!string.IsNullOrWhiteSpace(callbackCfg.BasePath), "Callback:BasePath");
 Helpers.Require(kioskCfg.ApiKey.Length >= 16, "Kiosk:ApiKey (tối thiểu 16 ký tự)");
 Helpers.Require(kioskCfg.OrderTtlSeconds is >= 60 and <= 900, "Kiosk:OrderTtlSeconds (60..900)");
+
+// ------------------------------------------------------------------ Storage Service (Local vs Cloudflare R2)
+if (string.Equals(storageCfg.Provider, "CloudflareR2", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddSingleton<IStorageService, CloudflareR2StorageService>();
+}
+else
+{
+    builder.Services.AddSingleton<IStorageService, LocalStorageService>();
+}
 
 // ------------------------------------------------------------------ Infra: Database (PostgreSQL Supabase) & Repositories
 var rawConnStr = builder.Configuration.GetConnectionString("Default");
@@ -99,6 +113,8 @@ if (usePostgres)
     builder.Services.AddScoped<IOrderRepository, OrderRepository>();
     builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
     builder.Services.AddScoped<IDiscountRepository, DiscountRepository>();
+    builder.Services.AddScoped<IPhotoLayoutRepository, PhotoLayoutRepository>();
+    builder.Services.AddScoped<IPhotoFrameRepository, PhotoFrameRepository>();
 }
 else
 {
@@ -106,6 +122,8 @@ else
     builder.Services.AddSingleton<IOrderRepository, InMemoryOrderRepository>();
     builder.Services.AddSingleton<ITransactionRepository, InMemoryTransactionRepository>();
     builder.Services.AddSingleton<IDiscountRepository, InMemoryDiscountRepository>();
+    builder.Services.AddSingleton<IPhotoLayoutRepository, InMemoryPhotoLayoutRepository>();
+    builder.Services.AddSingleton<IPhotoFrameRepository, InMemoryPhotoFrameRepository>();
 }
 
 builder.Services.AddHttpClient("vietqr", c =>
@@ -206,6 +224,22 @@ forwardedHeadersOptions.KnownProxies.Clear();
 app.UseForwardedHeaders(forwardedHeadersOptions);
 
 app.UseCors();
+
+// Phục vụ static files cho Local upload directory
+var uploadDir = Path.IsPathRooted(storageCfg.Local.BaseDirectory)
+    ? storageCfg.Local.BaseDirectory
+    : Path.Combine(app.Environment.ContentRootPath, storageCfg.Local.BaseDirectory);
+Directory.CreateDirectory(uploadDir);
+
+var publicUrlPrefix = storageCfg.Local.PublicBaseUrl.StartsWith('/') 
+    ? storageCfg.Local.PublicBaseUrl 
+    : "/" + storageCfg.Local.PublicBaseUrl;
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(uploadDir),
+    RequestPath = publicUrlPrefix
+});
 
 // Cấu hình OpenAPI & Scalar API Reference
 app.MapOpenApi();

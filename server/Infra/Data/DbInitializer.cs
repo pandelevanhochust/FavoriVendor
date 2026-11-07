@@ -83,10 +83,64 @@ BEGIN
     );
 
     CREATE INDEX IF NOT EXISTS ix_discount_codes_is_active ON public.discount_codes(""IsActive"");
+
+    -- 4. Bảng photo_layouts
+    CREATE TABLE IF NOT EXISTS public.photo_layouts (
+        ""Id"" VARCHAR(32) PRIMARY KEY,
+        ""Name"" VARCHAR(100) NOT NULL,
+        ""Slug"" VARCHAR(100) NOT NULL UNIQUE,
+        ""WidthPx"" INT NOT NULL DEFAULT 1200,
+        ""HeightPx"" INT NOT NULL DEFAULT 1800,
+        ""HoleCount"" INT NOT NULL DEFAULT 4,
+        ""Description"" VARCHAR(500),
+        ""IsActive"" BOOLEAN NOT NULL DEFAULT TRUE,
+        ""DisplayOrder"" INT NOT NULL DEFAULT 0,
+        ""PricingTiersJson"" JSONB,
+        ""CreatedAt"" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ""UpdatedAt"" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS ix_photo_layouts_is_active ON public.photo_layouts(""IsActive"");
+    CREATE INDEX IF NOT EXISTS ix_photo_layouts_display_order ON public.photo_layouts(""DisplayOrder"");
+
+    -- 5. Bảng photo_categories
+    CREATE TABLE IF NOT EXISTS public.photo_categories (
+        ""Id"" SERIAL PRIMARY KEY,
+        ""Name"" VARCHAR(100) NOT NULL,
+        ""Slug"" VARCHAR(100) NOT NULL UNIQUE,
+        ""Icon"" VARCHAR(50),
+        ""DisplayOrder"" INT NOT NULL DEFAULT 0,
+        ""IsActive"" BOOLEAN NOT NULL DEFAULT TRUE,
+        ""CreatedAt"" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS ix_photo_categories_is_active ON public.photo_categories(""IsActive"");
+    CREATE INDEX IF NOT EXISTS ix_photo_categories_display_order ON public.photo_categories(""DisplayOrder"");
+
+    -- 6. Bảng photo_frames
+    CREATE TABLE IF NOT EXISTS public.photo_frames (
+        ""Id"" SERIAL PRIMARY KEY,
+        ""LayoutId"" VARCHAR(32) NOT NULL REFERENCES public.photo_layouts(""Id"") ON DELETE CASCADE,
+        ""CategoryId"" INT REFERENCES public.photo_categories(""Id"") ON DELETE SET NULL,
+        ""Name"" VARCHAR(100) NOT NULL,
+        ""FrameUrl"" VARCHAR(500) NOT NULL,
+        ""ThumbnailUrl"" VARCHAR(500),
+        ""HolesJson"" JSONB NOT NULL DEFAULT '[]'::jsonb,
+        ""IsActive"" BOOLEAN NOT NULL DEFAULT TRUE,
+        ""DisplayOrder"" INT NOT NULL DEFAULT 0,
+        ""CreatedAt"" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ""UpdatedAt"" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS ix_photo_frames_layout_id ON public.photo_frames(""LayoutId"");
+    CREATE INDEX IF NOT EXISTS ix_photo_frames_category_id ON public.photo_frames(""CategoryId"");
+    CREATE INDEX IF NOT EXISTS ix_photo_frames_is_active ON public.photo_frames(""IsActive"");
+    CREATE INDEX IF NOT EXISTS ix_photo_frames_display_order ON public.photo_frames(""DisplayOrder"");
 END $$;
 ";
             await db.Database.ExecuteSqlRawAsync(ddlSql);
 
+            // Seed Discount Codes
             if (!await db.DiscountCodes.AnyAsync())
             {
                 logger.LogInformation("Đang khởi tạo các mã giảm giá mặc định trong PostgreSQL...");
@@ -131,9 +185,77 @@ END $$;
                         CreatedAtUtc = DateTime.UtcNow
                     }
                 );
-
                 await db.SaveChangesAsync();
                 logger.LogInformation("Khởi tạo mã giảm giá mặc định thành công.");
+            }
+
+            // Seed Photo Layouts
+            if (!await db.PhotoLayouts.AnyAsync())
+            {
+                logger.LogInformation("Đang khởi tạo các PhotoLayouts mặc định...");
+                db.PhotoLayouts.AddRange(
+                    new PhotoLayout
+                    {
+                        Id = "1x4",
+                        Name = "Dải 4 ảnh (1x4 Strips)",
+                        Slug = "strip-4-cuts",
+                        WidthPx = 1200,
+                        HeightPx = 1800,
+                        HoleCount = 4,
+                        Description = "Khổ dải film dọc 4 ảnh cổ điển",
+                        DisplayOrder = 1,
+                        IsActive = true,
+                        PricingTiersJson = "[{\"quantity\":2,\"price\":70000},{\"quantity\":4,\"price\":100000},{\"quantity\":6,\"price\":130000}]",
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new PhotoLayout
+                    {
+                        Id = "2x2",
+                        Name = "Lưới 4 ảnh vuông (2x2 Grid)",
+                        Slug = "grid-4-cuts",
+                        WidthPx = 1200,
+                        HeightPx = 1800,
+                        HoleCount = 4,
+                        Description = "Khổ 4 ảnh bố cục lưới 2x2 hiện đại",
+                        DisplayOrder = 2,
+                        IsActive = true,
+                        PricingTiersJson = "[{\"quantity\":2,\"price\":70000},{\"quantity\":4,\"price\":100000}]",
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new PhotoLayout
+                    {
+                        Id = "2x3",
+                        Name = "Lưới 6 ảnh (2x3 Postcard)",
+                        Slug = "postcard-6-cuts",
+                        WidthPx = 1200,
+                        HeightPx = 1800,
+                        HoleCount = 6,
+                        Description = "Khổ bưu thiếp 6 ảnh chi tiết",
+                        DisplayOrder = 3,
+                        IsActive = true,
+                        PricingTiersJson = "[{\"quantity\":2,\"price\":80000},{\"quantity\":4,\"price\":120000}]",
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    }
+                );
+                await db.SaveChangesAsync();
+                logger.LogInformation("Khởi tạo PhotoLayouts mặc định thành công.");
+            }
+
+            // Seed Categories
+            if (!await db.PhotoCategories.AnyAsync())
+            {
+                logger.LogInformation("Đang khởi tạo danh mục Frame mặc định...");
+                db.PhotoCategories.AddRange(
+                    new PhotoCategory { Name = "Hot Trend", Slug = "hot-trend", Icon = "FireOutlined", DisplayOrder = 1, IsActive = true },
+                    new PhotoCategory { Name = "Sinh nhật", Slug = "birthday", Icon = "GiftOutlined", DisplayOrder = 2, IsActive = true },
+                    new PhotoCategory { Name = "Tình yêu", Slug = "love", Icon = "HeartOutlined", DisplayOrder = 3, IsActive = true },
+                    new PhotoCategory { Name = "Vintage", Slug = "vintage", Icon = "CameraOutlined", DisplayOrder = 4, IsActive = true }
+                );
+                await db.SaveChangesAsync();
+                logger.LogInformation("Khởi tạo danh mục Frame thành công.");
             }
         }
         catch (Exception ex)

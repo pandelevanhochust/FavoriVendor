@@ -1,0 +1,35 @@
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: false,
+  transpilePackages: [
+    'antd',
+    '@ant-design',
+    '@ant-design/icons',
+    '@ant-design/icons-svg',
+    '@ant-design/cssinjs',
+    'rc-util',
+    'rc-pagination',
+    'rc-picker',
+    'rc-input',
+    'rc-tree',
+    'rc-table',
+    'rc-select',
+    'rc-dialog',
+    'rc-dropdown',
+    'rc-menu',
+    'rc-notification',
+    'rc-tooltip',
+    'rc-cascader',
+    'rc-tabs',
+    'rc-progress',
+    'rc-rate',
+    'rc-slider',
+    'rc-steps',
+    'rc-switch',
+    'rc-upload',
+    'rc-motion',
+    'rc-virtual-list',
+  ],
+};
+
+module.exports = nextConfig;

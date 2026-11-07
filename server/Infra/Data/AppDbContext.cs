@@ -12,6 +12,9 @@ public class AppDbContext : DbContext
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<BankTransaction> BankTransactions => Set<BankTransaction>();
     public DbSet<DiscountCode> DiscountCodes => Set<DiscountCode>();
+    public DbSet<PhotoLayout> PhotoLayouts => Set<PhotoLayout>();
+    public DbSet<PhotoCategory> PhotoCategories => Set<PhotoCategory>();
+    public DbSet<PhotoFrame> PhotoFrames => Set<PhotoFrame>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -73,6 +76,65 @@ public class AppDbContext : DbContext
 
             b.HasIndex(d => d.Code).IsUnique();
             b.HasIndex(d => d.IsActive);
+        });
+
+        // PhotoLayout Configuration
+        modelBuilder.Entity<PhotoLayout>(b =>
+        {
+            b.ToTable("photo_layouts");
+            b.HasKey(l => l.Id);
+            b.Property(l => l.Id).HasMaxLength(32);
+            b.Property(l => l.Name).HasMaxLength(100).IsRequired();
+            b.Property(l => l.Slug).HasMaxLength(100).IsRequired();
+            b.Property(l => l.Description).HasMaxLength(500);
+            b.Property(l => l.PricingTiersJson).HasColumnType("jsonb");
+
+            b.HasIndex(l => l.Slug).IsUnique();
+            b.HasIndex(l => l.IsActive);
+            b.HasIndex(l => l.DisplayOrder);
+        });
+
+        // PhotoCategory Configuration
+        modelBuilder.Entity<PhotoCategory>(b =>
+        {
+            b.ToTable("photo_categories");
+            b.HasKey(c => c.Id);
+            b.Property(c => c.Id).ValueGeneratedOnAdd();
+            b.Property(c => c.Name).HasMaxLength(100).IsRequired();
+            b.Property(c => c.Slug).HasMaxLength(100).IsRequired();
+            b.Property(c => c.Icon).HasMaxLength(50);
+
+            b.HasIndex(c => c.Slug).IsUnique();
+            b.HasIndex(c => c.IsActive);
+            b.HasIndex(c => c.DisplayOrder);
+        });
+
+        // PhotoFrame Configuration
+        modelBuilder.Entity<PhotoFrame>(b =>
+        {
+            b.ToTable("photo_frames");
+            b.HasKey(f => f.Id);
+            b.Property(f => f.Id).ValueGeneratedOnAdd();
+            b.Property(f => f.LayoutId).HasMaxLength(32).IsRequired();
+            b.Property(f => f.Name).HasMaxLength(100).IsRequired();
+            b.Property(f => f.FrameUrl).HasMaxLength(500).IsRequired();
+            b.Property(f => f.ThumbnailUrl).HasMaxLength(500);
+            b.Property(f => f.HolesJson).HasColumnType("jsonb");
+
+            b.HasIndex(f => f.LayoutId);
+            b.HasIndex(f => f.CategoryId);
+            b.HasIndex(f => f.IsActive);
+            b.HasIndex(f => f.DisplayOrder);
+
+            b.HasOne(f => f.Layout)
+             .WithMany(l => l.Frames)
+             .HasForeignKey(f => f.LayoutId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasOne(f => f.Category)
+             .WithMany(c => c.Frames)
+             .HasForeignKey(f => f.CategoryId)
+             .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

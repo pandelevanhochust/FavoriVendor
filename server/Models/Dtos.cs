@@ -135,3 +135,72 @@ public record BankTransactionDto(
     string Result,
     long TransactionTimeMs,
     DateTime ReceivedAt);
+
+// ---------- DTO Quản lý Khổ ảnh (Layouts) & Khung ảnh (Frames) ----------
+
+public record PricingTierDto(int Quantity, long Price);
+
+public record HoleRectDto(int X, int Y, int W, int H, double? Rotation = 0);
+
+public record PhotoLayoutDto(
+    string Id,
+    string Name,
+    string Slug,
+    int WidthPx,
+    int HeightPx,
+    int HoleCount,
+    string? Description,
+    bool IsActive,
+    int DisplayOrder,
+    List<PricingTierDto> PricingTiers,
+    int FrameCount = 0);
+
+public record CreateOrUpdateLayoutRequest(
+    string Id,
+    string Name,
+    string? Slug,
+    int WidthPx,
+    int HeightPx,
+    int HoleCount,
+    string? Description,
+    bool IsActive,
+    int DisplayOrder,
+    List<PricingTierDto>? PricingTiers);
+
+public record PhotoCategoryDto(
+    int Id,
+    string Name,
+    string Slug,
+    string? Icon,
+    int DisplayOrder,
+    bool IsActive,
+    int FrameCount = 0);
+
+public record CreateOrUpdateCategoryRequest(
+    string Name,
+    string? Slug,
+    string? Icon,
+    int DisplayOrder,
+    bool IsActive);
+
+public record PhotoFrameDto(
+    int Id,
+    string LayoutId,
+    string? LayoutName,
+    int? CategoryId,
+    string? CategoryName,
+    string Name,
+    string FrameUrl,
+    string? ThumbnailUrl,
+    List<HoleRectDto> Holes,
+    bool IsActive,
+    int DisplayOrder,
+    DateTime CreatedAt);
+
+public record UpdatePhotoFrameMetaRequest(
+    string LayoutId,
+    int? CategoryId,
+    string Name,
+    string HolesJson,
+    bool IsActive,
+    int DisplayOrder);
