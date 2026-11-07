@@ -115,6 +115,7 @@ if (usePostgres)
     builder.Services.AddScoped<IDiscountRepository, DiscountRepository>();
     builder.Services.AddScoped<IPhotoLayoutRepository, PhotoLayoutRepository>();
     builder.Services.AddScoped<IPhotoFrameRepository, PhotoFrameRepository>();
+    builder.Services.AddScoped<IPhotoFilterRepository, PhotoFilterRepository>();
 }
 else
 {
@@ -124,6 +125,7 @@ else
     builder.Services.AddSingleton<IDiscountRepository, InMemoryDiscountRepository>();
     builder.Services.AddSingleton<IPhotoLayoutRepository, InMemoryPhotoLayoutRepository>();
     builder.Services.AddSingleton<IPhotoFrameRepository, InMemoryPhotoFrameRepository>();
+    builder.Services.AddSingleton<IPhotoFilterRepository, InMemoryPhotoFilterRepository>();
 }
 
 builder.Services.AddHttpClient("vietqr", c =>

@@ -4,6 +4,7 @@ import {
   DashboardOutlined,
   AppstoreOutlined,
   PictureOutlined,
+  FilterOutlined,
   DesktopOutlined,
   CameraOutlined,
   CreditCardOutlined,
@@ -33,6 +34,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ collapsed }) => {
       key: '/frames',
       icon: <PictureOutlined style={{ fontSize: '16px' }} />,
       label: 'Khung ảnh & Holes',
+    },
+    {
+      key: '/filters',
+      icon: <FilterOutlined style={{ fontSize: '16px' }} />,
+      label: 'Bộ lọc màu (Filters)',
     },
     {
       key: '/machines',

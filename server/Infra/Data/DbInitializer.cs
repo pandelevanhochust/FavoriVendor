@@ -136,6 +136,28 @@ BEGIN
     CREATE INDEX IF NOT EXISTS ix_photo_frames_category_id ON public.photo_frames(""CategoryId"");
     CREATE INDEX IF NOT EXISTS ix_photo_frames_is_active ON public.photo_frames(""IsActive"");
     CREATE INDEX IF NOT EXISTS ix_photo_frames_display_order ON public.photo_frames(""DisplayOrder"");
+
+    -- 7. Bảng photo_filters
+    CREATE TABLE IF NOT EXISTS public.photo_filters (
+        ""Id"" SERIAL PRIMARY KEY,
+        ""Code"" VARCHAR(50) NOT NULL UNIQUE,
+        ""Name"" VARCHAR(100) NOT NULL,
+        ""Category"" VARCHAR(50) NOT NULL DEFAULT 'General',
+        ""Type"" VARCHAR(20) NOT NULL DEFAULT 'LUT',
+        ""LutUrl"" VARCHAR(500),
+        ""ThumbnailUrl"" VARCHAR(500),
+        ""IntensityDefault"" REAL NOT NULL DEFAULT 1.0,
+        ""ConfigJson"" JSONB,
+        ""IsActive"" BOOLEAN NOT NULL DEFAULT TRUE,
+        ""DisplayOrder"" INT NOT NULL DEFAULT 0,
+        ""CreatedAt"" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ""UpdatedAt"" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS ix_photo_filters_code ON public.photo_filters(""Code"");
+    CREATE INDEX IF NOT EXISTS ix_photo_filters_category ON public.photo_filters(""Category"");
+    CREATE INDEX IF NOT EXISTS ix_photo_filters_is_active ON public.photo_filters(""IsActive"");
+    CREATE INDEX IF NOT EXISTS ix_photo_filters_display_order ON public.photo_filters(""DisplayOrder"");
 END $$;
 ";
             await db.Database.ExecuteSqlRawAsync(ddlSql);
@@ -256,6 +278,67 @@ END $$;
                 );
                 await db.SaveChangesAsync();
                 logger.LogInformation("Khởi tạo danh mục Frame thành công.");
+            }
+
+            // Seed Photo Filters
+            if (!await db.PhotoFilters.AnyAsync())
+            {
+                logger.LogInformation("Đang khởi tạo các PhotoFilters mặc định...");
+                db.PhotoFilters.AddRange(
+                    new PhotoFilter
+                    {
+                        Code = "original",
+                        Name = "Ảnh Gốc (Natural)",
+                        Category = "General",
+                        Type = "Preset",
+                        IntensityDefault = 1.0f,
+                        DisplayOrder = 1,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new PhotoFilter
+                    {
+                        Code = "classic_bw",
+                        Name = "Đen Trắng Cổ Điển (Classic B&W)",
+                        Category = "Black & White",
+                        Type = "Preset",
+                        IntensityDefault = 1.0f,
+                        ConfigJson = "{\"grayscale\":1.0,\"contrast\":1.2}",
+                        DisplayOrder = 2,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new PhotoFilter
+                    {
+                        Code = "korean_soft",
+                        Name = "Hàn Quốc Trong Trẻo (Korean Glow)",
+                        Category = "Natural",
+                        Type = "Preset",
+                        IntensityDefault = 0.9f,
+                        ConfigJson = "{\"brightness\":0.05,\"contrast\":0.95,\"saturation\":1.1}",
+                        DisplayOrder = 3,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new PhotoFilter
+                    {
+                        Code = "vintage_warm",
+                        Name = "Màu Phim Hoài Niệm (Vintage Warm)",
+                        Category = "Film",
+                        Type = "Preset",
+                        IntensityDefault = 0.85f,
+                        ConfigJson = "{\"sepia\":0.3,\"contrast\":1.1,\"saturation\":0.9}",
+                        DisplayOrder = 4,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    }
+                );
+                await db.SaveChangesAsync();
+                logger.LogInformation("Khởi tạo PhotoFilters mặc định thành công.");
             }
         }
         catch (Exception ex)

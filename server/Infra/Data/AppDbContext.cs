@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<PhotoLayout> PhotoLayouts => Set<PhotoLayout>();
     public DbSet<PhotoCategory> PhotoCategories => Set<PhotoCategory>();
     public DbSet<PhotoFrame> PhotoFrames => Set<PhotoFrame>();
+    public DbSet<PhotoFilter> PhotoFilters => Set<PhotoFilter>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -135,6 +136,26 @@ public class AppDbContext : DbContext
              .WithMany(c => c.Frames)
              .HasForeignKey(f => f.CategoryId)
              .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // PhotoFilter Configuration
+        modelBuilder.Entity<PhotoFilter>(b =>
+        {
+            b.ToTable("photo_filters");
+            b.HasKey(f => f.Id);
+            b.Property(f => f.Id).ValueGeneratedOnAdd();
+            b.Property(f => f.Code).HasMaxLength(50).IsRequired();
+            b.Property(f => f.Name).HasMaxLength(100).IsRequired();
+            b.Property(f => f.Category).HasMaxLength(50).HasDefaultValue("General");
+            b.Property(f => f.Type).HasMaxLength(20).HasDefaultValue("LUT");
+            b.Property(f => f.LutUrl).HasMaxLength(500);
+            b.Property(f => f.ThumbnailUrl).HasMaxLength(500);
+            b.Property(f => f.ConfigJson).HasColumnType("jsonb");
+
+            b.HasIndex(f => f.Code).IsUnique();
+            b.HasIndex(f => f.Category);
+            b.HasIndex(f => f.IsActive);
+            b.HasIndex(f => f.DisplayOrder);
         });
     }
 }

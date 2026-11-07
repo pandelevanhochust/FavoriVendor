@@ -204,3 +204,38 @@ public record UpdatePhotoFrameMetaRequest(
     string HolesJson,
     bool IsActive,
     int DisplayOrder);
+
+// ---------- DTO Quản lý Bộ lọc ảnh (Photo Filters) ----------
+
+public record PhotoFilterDto(
+    int Id,
+    string Code,
+    string Name,
+    string Category,
+    string Type,
+    string? LutUrl,
+    string? ThumbnailUrl,
+    float IntensityDefault,
+    string? ConfigJson,
+    bool IsActive,
+    int DisplayOrder,
+    DateTime CreatedAt);
+
+public record CreatePhotoFilterRequest(
+    string Code,
+    string Name,
+    string? Category,
+    string? Type,
+    float? IntensityDefault,
+    int? DisplayOrder,
+    bool? IsActive,
+    string? ConfigJson);
+
+public record UpdatePhotoFilterRequest(
+    string Name,
+    string? Category,
+    string? Type,
+    float? IntensityDefault,
+    int? DisplayOrder,
+    bool? IsActive,
+    string? ConfigJson);
