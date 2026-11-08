@@ -105,5 +105,49 @@ public class InMemoryOrderRepository : IOrderRepository
         return Task.FromResult(query.Count());
     }
 
+    public Task<VietQrKiosk.Server.Models.RevenueSummaryDto> GetRevenueSummaryAsync(
+        DateTime? fromUtc = null,
+        DateTime? toUtc = null,
+        CancellationToken ct = default)
+    {
+        var query = _orders.Values.AsEnumerable();
+
+        if (fromUtc.HasValue)
+            query = query.Where(o => o.CreatedAt >= fromUtc.Value);
+
+        if (toUtc.HasValue)
+            query = query.Where(o => o.CreatedAt <= toUtc.Value);
+
+        var totalOrders = query.Count();
+        var pendingOrders = query.Count(o => o.Status == OrderStatus.Pending);
+
+        var paidOrders = query.Where(o => o.Status == OrderStatus.Paid).ToList();
+
+        var cashOrders = paidOrders.Where(o => o.QrContent == "CASH" || (o.BankTransactionId != null && o.BankTransactionId.StartsWith("CASH-"))).ToList();
+        var transferOrders = paidOrders.Where(o => o.QrContent != "CASH" && (o.BankTransactionId == null || !o.BankTransactionId.StartsWith("CASH-"))).ToList();
+
+        var cashCount = cashOrders.Count;
+        var cashRevenue = cashOrders.Sum(o => o.Amount);
+
+        var transferCount = transferOrders.Count;
+        var transferRevenue = transferOrders.Sum(o => o.Amount);
+
+        var totalCount = cashCount + transferCount;
+        var totalRevenue = cashRevenue + transferRevenue;
+
+        var result = new VietQrKiosk.Server.Models.RevenueSummaryDto(
+            TransferRevenue: transferRevenue,
+            CashRevenue: cashRevenue,
+            TotalRevenue: totalRevenue,
+            TransferCount: transferCount,
+            CashCount: cashCount,
+            TotalCount: totalCount,
+            TotalOrders: totalOrders,
+            PendingOrders: pendingOrders
+        );
+
+        return Task.FromResult(result);
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }

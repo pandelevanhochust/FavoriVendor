@@ -136,6 +136,16 @@ public record BankTransactionDto(
     long TransactionTimeMs,
     DateTime ReceivedAt);
 
+public record RevenueSummaryDto(
+    long TransferRevenue,
+    long CashRevenue,
+    long TotalRevenue,
+    int TransferCount,
+    int CashCount,
+    int TotalCount,
+    int TotalOrders,
+    int PendingOrders);
+
 // ---------- DTO Quản lý Khổ ảnh (Layouts) & Khung ảnh (Frames) ----------
 
 public record PricingTierDto(int Quantity, long Price);

@@ -46,7 +46,7 @@ export default function DashboardPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      let params: { date?: string; fromDate?: string; toDate?: string } = {};
+      let params: { date?: string; fromDate?: string; toDate?: string; startDate?: string; endDate?: string } = {};
 
       const todayStr = dayjs().format('YYYY-MM-DD');
       if (timeFilter === 'today') {
@@ -54,14 +54,20 @@ export default function DashboardPage() {
       } else if (timeFilter === 'yesterday') {
         params.date = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
       } else if (timeFilter === '7days') {
-        params.fromDate = dayjs().subtract(6, 'day').format('YYYY-MM-DD');
-        params.toDate = todayStr;
+        params.startDate = dayjs().subtract(6, 'day').format('YYYY-MM-DD');
+        params.endDate = todayStr;
+        params.fromDate = params.startDate;
+        params.toDate = params.endDate;
       } else if (timeFilter === '30days') {
-        params.fromDate = dayjs().subtract(29, 'day').format('YYYY-MM-DD');
-        params.toDate = todayStr;
+        params.startDate = dayjs().subtract(29, 'day').format('YYYY-MM-DD');
+        params.endDate = todayStr;
+        params.fromDate = params.startDate;
+        params.toDate = params.endDate;
       } else if (timeFilter === 'custom' && dateRange && dateRange[0] && dateRange[1]) {
-        params.fromDate = dateRange[0].format('YYYY-MM-DD');
-        params.toDate = dateRange[1].format('YYYY-MM-DD');
+        params.startDate = dateRange[0].format('YYYY-MM-DD');
+        params.endDate = dateRange[1].format('YYYY-MM-DD');
+        params.fromDate = params.startDate;
+        params.toDate = params.endDate;
       }
 
       const res = await fetchDashboardData(params);

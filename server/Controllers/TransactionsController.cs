@@ -177,4 +177,24 @@ public class TransactionsController : ControllerBase
 
         return Ok(new SyncCashTransactionResponse(true, orderId, "Lưu giao dịch tiền mặt vào cơ sở dữ liệu thành công."));
     }
-}
+
+    /// <summary>
+    /// Thống kê doanh thu theo range ngày (hỗ trợ startDate/endDate, fromDate/toDate, date, tz).
+    /// </summary>
+    [HttpGet("revenue-summary")]
+    public async Task<ActionResult<RevenueSummaryDto>> GetRevenueSummary(
+        [FromQuery] string? startDate,
+        [FromQuery] string? endDate,
+        [FromQuery] string? fromDate,
+        [FromQuery] string? toDate,
+        [FromQuery] string? date,
+        [FromQuery] int tz = 7,
+        CancellationToken ct = default)
+    {
+        var fDate = !string.IsNullOrWhiteSpace(startDate) ? startDate : fromDate;
+        var tDate = !string.IsNullOrWhiteSpace(endDate) ? endDate : toDate;
+        var (fromUtc, toUtc) = Helpers.ParseDateFilter(date, fDate, tDate, tz);
+        var summary = await _orderRepo.GetRevenueSummaryAsync(fromUtc, toUtc, ct);
+        return Ok(summary);
+    }
+}

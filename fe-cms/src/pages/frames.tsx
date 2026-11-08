@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Card,
   Row,
@@ -19,6 +19,8 @@ import {
   Spin,
   Empty,
   Tooltip,
+  Alert,
+  Tabs,
 } from 'antd';
 import {
   PlusOutlined,
@@ -28,6 +30,9 @@ import {
   ReloadOutlined,
   InboxOutlined,
   CheckCircleOutlined,
+  ScanOutlined,
+  FileTextOutlined,
+  PictureOutlined,
 } from '@ant-design/icons';
 import {
   PhotoFrame,
@@ -41,6 +46,11 @@ import {
   deleteFrame,
   resolveAssetUrl,
 } from '../api/photoLayoutApi';
+import {
+  detectTransparentHoles,
+  parseTemplateXml,
+  DetectedHole,
+} from '../utils/frameDetector';
 
 const { Title, Text } = Typography;
 
@@ -57,7 +67,11 @@ export default function FramesPage() {
   // Upload Modal State
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [detecting, setDetecting] = useState(false);
   const [fileList, setFileList] = useState<any[]>([]);
+  const [previewPngUrl, setPreviewPngUrl] = useState<string | null>(null);
+  const [parsedHoles, setParsedHoles] = useState<DetectedHole[]>([]);
+  const [imageDims, setImageDims] = useState<{ w: number; h: number } | null>(null);
   const [form] = Form.useForm();
 
   // Holes Inspector Modal
@@ -88,15 +102,109 @@ export default function FramesPage() {
 
   const handleOpenUpload = () => {
     setFileList([]);
+    setPreviewPngUrl(null);
+    setParsedHoles([]);
+    setImageDims(null);
     form.resetFields();
     form.setFieldsValue({
-      layoutId: layouts[0]?.id || '1x4',
+      layoutId: layouts[0]?.id || '4x6',
       categoryId: categories[0]?.id,
       displayOrder: 1,
       isActive: true,
-      holesJson: '[\n  {"x": 100, "y": 80, "w": 400, "h": 280},\n  {"x": 100, "y": 420, "w": 400, "h": 280},\n  {"x": 100, "y": 760, "w": 400, "h": 280},\n  {"x": 100, "y": 1100, "w": 400, "h": 280}\n]',
+      holesJson: '[]',
     });
     setIsUploadModalOpen(true);
+  };
+
+  // Tự động phân tích file PNG khi người dùng chọn
+  const handlePngFileSelect = async (file: File) => {
+    const isPng = file.type === 'image/png' || file.name.endsWith('.png');
+    if (!isPng) {
+      message.error('Vui lòng chọn file hình ảnh PNG có nền trong suốt!');
+      return;
+    }
+
+    setFileList([file]);
+    const objUrl = URL.createObjectURL(file);
+    setPreviewPngUrl(objUrl);
+
+    // Gợi ý tên khung từ tên file
+    const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+    if (!form.getFieldValue('name')) {
+      form.setFieldsValue({ name: cleanName });
+    }
+
+    // Tự động chạy thuật toán quét ô trong suốt (Auto-Detect Transparent Holes)
+    try {
+      setDetecting(true);
+      const res = await detectTransparentHoles(file);
+      setImageDims({ w: res.imageWidth, h: res.imageHeight });
+
+      if (res.holes.length > 0) {
+        setParsedHoles(res.holes);
+        form.setFieldsValue({
+          holesJson: JSON.stringify(res.holes, null, 2),
+        });
+
+        // Gợi ý layout phù hợp
+        if (res.imageWidth > res.imageHeight && layouts.some((l) => l.id === '6x4')) {
+          form.setFieldsValue({ layoutId: '6x4' });
+        } else if (res.imageHeight > res.imageWidth * 2.2 && layouts.some((l) => l.id === '2x6' || l.id === '1x4')) {
+          form.setFieldsValue({ layoutId: layouts.find((l) => l.id === '2x6' || l.id === '1x4')?.id });
+        } else if (layouts.some((l) => l.id === '4x6')) {
+          form.setFieldsValue({ layoutId: '4x6' });
+        }
+
+        message.success(
+          `Đã tự động nhận diện được ${res.holes.length} ô ảnh trong suốt (${res.imageWidth}x${res.imageHeight}px)!`
+        );
+      } else {
+        message.info(
+          'Không tìm thấy ô trong suốt rõ ràng. Bạn có thể tự tạo tọa độ mẫu hoặc nhập template.xml.'
+        );
+      }
+    } catch (err: any) {
+      console.warn('Auto detect failed:', err);
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  // Import từ template.xml (kho D:\WORK\Frames)
+  const handleXmlImport = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const parsed = parseTemplateXml(text);
+
+        // Map layout
+        let matchedLayout = layouts.find(
+          (l) => l.id.toLowerCase() === parsed.layout.toLowerCase()
+        )?.id;
+        if (!matchedLayout) {
+          if (parsed.width > parsed.height) matchedLayout = '6x4';
+          else matchedLayout = '4x6';
+        }
+
+        form.setFieldsValue({
+          name: parsed.name !== 'Untitled-Frame' ? parsed.name : form.getFieldValue('name') || parsed.name,
+          layoutId: matchedLayout,
+          holesJson: JSON.stringify(parsed.holes, null, 2),
+        });
+
+        setParsedHoles(parsed.holes);
+        setImageDims({ w: parsed.width, h: parsed.height });
+
+        message.success(
+          `Đã import template.xml thành công: Khổ ${parsed.layout} (${parsed.width}x${parsed.height}), ${parsed.holes.length} ô ảnh!`
+        );
+      } catch (err: any) {
+        message.error('Lỗi khi đọc file template.xml: ' + (err.message || 'File không hợp lệ'));
+      }
+    };
+    reader.readAsText(file);
+    return false;
   };
 
   const handleUploadSubmit = async () => {
@@ -146,26 +254,28 @@ export default function FramesPage() {
     const selectedLayoutId = form.getFieldValue('layoutId');
     const layout = layouts.find((l) => l.id === selectedLayoutId);
     const count = layout ? layout.holeCount : 4;
-    const w = layout ? layout.widthPx : 1200;
-    const h = layout ? layout.heightPx : 1800;
+    const w = layout ? layout.widthPx : 2400;
+    const h = layout ? layout.heightPx : 3600;
 
     const holes: HoleRect[] = [];
-    const itemHeight = Math.floor((h - 200) / count);
-    const itemWidth = Math.floor(w * 0.7);
+    const itemHeight = Math.floor((h - 400) / count);
+    const itemWidth = Math.floor(w * 0.75);
     const x = Math.floor((w - itemWidth) / 2);
 
     for (let i = 0; i < count; i++) {
       holes.push({
         x,
-        y: 80 + i * itemHeight,
+        y: 160 + i * itemHeight,
         w: itemWidth,
-        h: itemHeight - 40,
+        h: itemHeight - 60,
       });
     }
 
     form.setFieldsValue({
       holesJson: JSON.stringify(holes, null, 2),
     });
+    setParsedHoles(holes);
+    setImageDims({ w, h });
     message.info(`Đã tạo mẫu ${count} ô holes cho khổ ${selectedLayoutId}!`);
   };
 
@@ -173,9 +283,9 @@ export default function FramesPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <Title level={4} style={{ margin: 0 }}>Kho Khung Ảnh & Tọa Độ Holes</Title>
+          <Title level={4} style={{ margin: 0 }}>Kho Khung Ảnh & Tọa Độ Lồng Ảnh (Frames)</Title>
           <Text style={{ fontSize: 13, color: '#64748b' }}>
-            Quản lý các viền ảnh PNG trong suốt và định vị vị trí lồng ảnh chụp tự động cho máy Kiosk
+            Hệ thống quản lý viền khung PNG, tự động nhận diện lỗ đục (Holes) và import chuẩn XML từ kho Photobooth
           </Text>
         </div>
         <Space>
@@ -188,7 +298,7 @@ export default function FramesPage() {
             style={{ background: '#f86fa5', borderColor: '#f86fa5', borderRadius: 8 }}
             onClick={handleOpenUpload}
           >
-            Tải Lên Khung PNG
+            Tạo Khung Mới
           </Button>
         </Space>
       </div>
@@ -223,12 +333,14 @@ export default function FramesPage() {
         <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
       ) : frames.length === 0 ? (
         <Card style={{ borderRadius: 12, textAlign: 'center', padding: 40 }}>
-          <Empty description="Chưa có khung ảnh nào. Hãy nhấn 'Tải Lên Khung PNG' để bắt đầu!" />
+          <Empty description="Chưa có khung ảnh nào. Hãy nhấn 'Tạo Khung Mới' để thêm từ PNG hoặc kho template.xml!" />
         </Card>
       ) : (
         <Row gutter={[20, 20]}>
           {frames.map((frame) => {
             const fullUrl = resolveAssetUrl(frame.frameUrl);
+            const holeCount = frame.holes?.length || 0;
+
             return (
               <Col xs={24} sm={12} md={8} lg={6} key={frame.id}>
                 <Card
@@ -246,9 +358,11 @@ export default function FramesPage() {
                         justifyContent: 'center',
                         position: 'relative',
                         padding: 12,
+                        cursor: 'pointer',
                       }}
+                      onClick={() => setInspectingFrame(frame)}
                     >
-                      {/* Frame image preview */}
+                      {/* Frame image preview with graceful fallback */}
                       <img
                         alt={frame.name}
                         src={fullUrl}
@@ -259,7 +373,22 @@ export default function FramesPage() {
                           filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))',
                         }}
                         onError={(e) => {
-                          (e.target as any).src = 'https://placehold.co/300x450/e2e8f0/64748b?text=PNG+Frame';
+                          const target = e.target as HTMLElement;
+                          target.style.display = 'none';
+                          const parent = target.parentElement;
+                          if (parent && !parent.querySelector('.frame-fallback-box')) {
+                            const fallback = document.createElement('div');
+                            fallback.className = 'frame-fallback-box';
+                            fallback.style.textAlign = 'center';
+                            fallback.style.padding = '20px';
+                            fallback.innerHTML = `
+                              <div style="font-size: 32px; color: #94a3b8; margin-bottom: 8px;">🖼️</div>
+                              <div style="font-weight: 600; color: #334155; font-size: 13px;">${frame.name}</div>
+                              <div style="font-size: 11px; color: #64748b; margin-top: 4px;">(${holeCount} ô ảnh lồng)</div>
+                              <div style="font-size: 10px; color: #e11d48; margin-top: 6px; background: #ffe4e6; padding: 2px 6px; border-radius: 4px;">R2 Access Private</div>
+                            `;
+                            parent.appendChild(fallback);
+                          }
                         }}
                       />
                       <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', gap: 4 }}>
@@ -274,14 +403,14 @@ export default function FramesPage() {
                     </div>
                   }
                   actions={[
-                    <Tooltip title="Xem cấu trúc các ô Holes lồng ảnh">
+                    <Tooltip title="Xem chi tiết các ô Holes lồng ảnh">
                       <Button
                         type="text"
                         icon={<EyeOutlined />}
                         onClick={() => setInspectingFrame(frame)}
                         style={{ color: '#0284c7' }}
                       >
-                        Holes ({frame.holes?.length || 0})
+                        Holes ({holeCount})
                       </Button>
                     </Tooltip>,
                     <Popconfirm
@@ -316,7 +445,7 @@ export default function FramesPage() {
 
       {/* Visual Holes Inspector Modal */}
       <Modal
-        title={`Visual Holes Inspector: ${inspectingFrame?.name} (${inspectingFrame?.layoutId})`}
+        title={`Chi Tiết Khung & Ô Holes: ${inspectingFrame?.name} (${inspectingFrame?.layoutId})`}
         open={!!inspectingFrame}
         onCancel={() => setInspectingFrame(null)}
         footer={[
@@ -324,14 +453,18 @@ export default function FramesPage() {
             Đóng
           </Button>,
         ]}
-        width={720}
+        width={760}
         destroyOnClose
       >
         {inspectingFrame && (
           <div>
-            <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
-              Các ô màu đỏ nhạt bên dưới đại diện cho tọa độ các lỗ (holes) `{'{x, y, w, h}'}` mà máy Kiosk sẽ tự động crop và lồng ảnh chụp vào.
-            </Text>
+            <Alert
+              type="info"
+              showIcon
+              message="Cấu trúc Layer Khung Photobooth"
+              description="Các ô màu hồng bên dưới là vùng đục lỗ (Holes) mà máy Kiosk sẽ tự động crop và lồng ảnh chụp của khách hàng vào, sau đó phủ viền PNG lên trên."
+              style={{ marginBottom: 16 }}
+            />
 
             <div
               style={{
@@ -352,12 +485,15 @@ export default function FramesPage() {
                   src={resolveAssetUrl(inspectingFrame.frameUrl)}
                   alt={inspectingFrame.name}
                   style={{ maxHeight: 460, display: 'block', zIndex: 2, position: 'relative' }}
+                  onError={(e) => {
+                    const el = e.target as HTMLElement;
+                    el.style.opacity = '0.3';
+                  }}
                 />
-                {/* Overlay visual boxes based on holes coordinates (relative scale) */}
                 {inspectingFrame.holes?.map((hole, idx) => {
                   const targetLayout = layouts.find((l) => l.id === inspectingFrame.layoutId);
-                  const lW = targetLayout?.widthPx || 1200;
-                  const lH = targetLayout?.heightPx || 1800;
+                  const lW = targetLayout?.widthPx || 2400;
+                  const lH = targetLayout?.heightPx || 3600;
 
                   const leftPct = (hole.x / lW) * 100;
                   const topPct = (hole.y / lH) * 100;
@@ -374,18 +510,18 @@ export default function FramesPage() {
                         width: `${widthPct}%`,
                         height: `${heightPct}%`,
                         border: '2px dashed #f43f5e',
-                        backgroundColor: 'rgba(244, 63, 94, 0.35)',
+                        backgroundColor: 'rgba(244, 63, 94, 0.4)',
                         zIndex: 3,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         color: '#fff',
                         fontWeight: 700,
-                        fontSize: 14,
+                        fontSize: 13,
                         textShadow: '0 1px 2px rgba(0,0,0,0.8)',
                       }}
                     >
-                      Hole #{idx + 1}
+                      Photo #{idx + 1}
                     </div>
                   );
                 })}
@@ -393,7 +529,7 @@ export default function FramesPage() {
             </div>
 
             <div style={{ marginTop: 14 }}>
-              <Text strong>Tọa độ JSON thực tế:</Text>
+              <Text strong>Tọa độ JSON định cấu hình ({inspectingFrame.holes?.length || 0} ô):</Text>
               <pre
                 style={{
                   background: '#f8fafc',
@@ -403,6 +539,7 @@ export default function FramesPage() {
                   overflow: 'auto',
                   fontSize: 12,
                   marginTop: 6,
+                  border: '1px solid #e2e8f0',
                 }}
               >
                 {JSON.stringify(inspectingFrame.holes, null, 2)}
@@ -412,51 +549,139 @@ export default function FramesPage() {
         )}
       </Modal>
 
-      {/* Upload Frame Modal */}
+      {/* Upload Frame Modal with Auto-Detect & Template.xml Import */}
       <Modal
-        title="Tải Lên Khung Ảnh PNG Mới"
+        title="Tạo Khung Ảnh Mới (Tự Động Nhận Diện Lỗ & Hỗ Trợ XML)"
         open={isUploadModalOpen}
         onOk={handleUploadSubmit}
         confirmLoading={submitting}
         onCancel={() => setIsUploadModalOpen(false)}
-        okText="Tải Lên & Lưu"
+        okText="Lưu Khung Ảnh"
         cancelText="Hủy"
-        width={680}
+        width={800}
         destroyOnClose
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+        <div style={{ marginBottom: 16 }}>
+          <Space wrap>
+            <Upload
+              accept=".xml"
+              showUploadList={false}
+              beforeUpload={(file) => handleXmlImport(file)}
+            >
+              <Button icon={<FileTextOutlined />} style={{ borderRadius: 6 }}>
+                Import từ file template.xml (Kho Frames)
+              </Button>
+            </Upload>
+            <Button
+              icon={<ScanOutlined />}
+              onClick={() => {
+                if (fileList.length > 0) {
+                  handlePngFileSelect(fileList[0].originFileObj || fileList[0]);
+                } else {
+                  message.warning('Vui lòng chọn file PNG trước khi quét!');
+                }
+              }}
+              loading={detecting}
+            >
+              Quét lại lỗ trong suốt (Auto Detect)
+            </Button>
+          </Space>
+        </div>
+
+        <Form form={form} layout="vertical">
           <Form.Item
-            label="File Khung Ảnh (.PNG có Alpha Channel trong suốt)"
+            label="File Khung Viền PNG (Trong suốt các ô chụp ảnh)"
             required
-            tooltip="Bắt buộc là file PNG 32-bit có các vùng trong suốt để lồng ảnh người chụp."
+            tooltip="Hệ thống sẽ tự động quét các vùng trong suốt trên file PNG để định vị ô chụp ảnh."
           >
             <Upload.Dragger
               accept=".png,image/png"
               fileList={fileList}
               beforeUpload={(file) => {
-                const isPng = file.type === 'image/png' || file.name.endsWith('.png');
-                if (!isPng) {
-                  message.error('Chỉ chấp nhận file định dạng PNG!');
-                  return Upload.LIST_IGNORE;
-                }
-                setFileList([file]);
-                return false; // Prevent auto-upload
+                handlePngFileSelect(file);
+                return false;
               }}
-              onRemove={() => setFileList([])}
+              onRemove={() => {
+                setFileList([]);
+                setPreviewPngUrl(null);
+                setParsedHoles([]);
+              }}
               maxCount={1}
             >
               <p className="ant-upload-drag-icon">
-                <InboxOutlined style={{ color: '#f86fa5', fontSize: 40 }} />
+                <InboxOutlined style={{ color: '#f86fa5', fontSize: 36 }} />
               </p>
-              <p className="ant-upload-text">Nhấn hoặc kéo thả file PNG vào đây để tải lên</p>
-              <p className="ant-upload-hint">File sẽ được lưu vào Local Disk hoặc Cloudflare R2 theo cấu hình server</p>
+              <p className="ant-upload-text" style={{ fontSize: 14 }}>
+                Kéo thả file ảnh PNG viền khung vào đây
+              </p>
+              <p className="ant-upload-hint" style={{ fontSize: 12 }}>
+                Chuẩn kích thước photobooth: 2400x3600 (4x6) hoặc 3600x2400 (6x4). Hệ thống sẽ tự động tìm lỗ thủng!
+              </p>
             </Upload.Dragger>
           </Form.Item>
+
+          {/* Live Preview Canvas with detected holes */}
+          {previewPngUrl && (
+            <div style={{ marginBottom: 16, textAlign: 'center' }}>
+              <Text strong style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 8 }}>
+                Live Canvas Preview (Đã phát hiện {parsedHoles.length} ô ảnh lồng):
+              </Text>
+              <div
+                style={{
+                  display: 'inline-block',
+                  position: 'relative',
+                  maxHeight: 280,
+                  maxWidth: '100%',
+                  background: '#f1f5f9',
+                  backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)',
+                  backgroundSize: '12px 12px',
+                  borderRadius: 8,
+                  padding: 8,
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                  <img
+                    src={previewPngUrl}
+                    alt="Preview"
+                    style={{ maxHeight: 240, maxWidth: '100%', display: 'block' }}
+                  />
+                  {parsedHoles.map((hole, i) => {
+                    const totalW = imageDims?.w || 2400;
+                    const totalH = imageDims?.h || 3600;
+                    return (
+                      <div
+                        key={i}
+                        style={{
+                          position: 'absolute',
+                          left: `${(hole.x / totalW) * 100}%`,
+                          top: `${(hole.y / totalH) * 100}%`,
+                          width: `${(hole.w / totalW) * 100}%`,
+                          height: `${(hole.h / totalH) * 100}%`,
+                          border: '2px solid #10b981',
+                          backgroundColor: 'rgba(16, 185, 129, 0.3)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#fff',
+                          fontWeight: 700,
+                          fontSize: 11,
+                          textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+                        }}
+                      >
+                        #{i + 1}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <Form.Item
               name="layoutId"
-              label="Thuộc Khổ Ảnh (Layout)"
+              label="Khổ Ảnh (Layout)"
               rules={[{ required: true, message: 'Vui lòng chọn khổ ảnh' }]}
             >
               <Select
@@ -480,7 +705,7 @@ export default function FramesPage() {
               label="Tên Khung Ảnh"
               rules={[{ required: true, message: 'Vui lòng đặt tên cho khung ảnh' }]}
             >
-              <Input placeholder="ví dụ: Y2K Pastel Ribbon Frame" />
+              <Input placeholder="ví dụ: Summer Vibes 4 Ô" />
             </Form.Item>
 
             <Form.Item name="displayOrder" label="Thứ tự hiển thị">
@@ -489,23 +714,31 @@ export default function FramesPage() {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <label style={{ fontWeight: 500, fontSize: 14 }}>Tọa Độ Holes (JSON Array):</label>
+            <label style={{ fontWeight: 500, fontSize: 13 }}>
+              Tọa độ Holes (Tự động cập nhật khi quét ảnh hoặc import XML):
+            </label>
             <Button size="small" type="link" onClick={handleGenerateTemplateHoles}>
-              Tạo tọa độ mẫu theo Khổ
+              Tạo mẫu theo Khổ
             </Button>
           </div>
           <Form.Item
             name="holesJson"
-            rules={[{ required: true, message: 'Nhập tọa độ JSON holes' }]}
+            rules={[{ required: true, message: 'Tọa độ holes không được để trống' }]}
           >
             <Input.TextArea
-              rows={4}
+              rows={3}
               placeholder='[{"x": 100, "y": 80, "w": 400, "h": 280}, ...]'
               style={{ fontFamily: 'monospace', fontSize: 12 }}
+              onChange={(e) => {
+                try {
+                  const parsed = JSON.parse(e.target.value);
+                  if (Array.isArray(parsed)) setParsedHoles(parsed);
+                } catch {}
+              }}
             />
           </Form.Item>
 
-          <Form.Item name="isActive" label="Kích hoạt trên Kiosk ngay" valuePropName="checked">
+          <Form.Item name="isActive" label="Kích hoạt trên máy Kiosk ngay" valuePropName="checked">
             <Switch checkedChildren="Bật" unCheckedChildren="Tắt" />
           </Form.Item>
         </Form>

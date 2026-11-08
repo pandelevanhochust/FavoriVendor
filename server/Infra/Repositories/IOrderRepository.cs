@@ -22,5 +22,9 @@ public interface IOrderRepository
         OrderStatus? status = null,
         string? paymentType = null,
         CancellationToken ct = default);
+    Task<VietQrKiosk.Server.Models.RevenueSummaryDto> GetRevenueSummaryAsync(
+        DateTime? fromUtc = null,
+        DateTime? toUtc = null,
+        CancellationToken ct = default);
     Task SaveChangesAsync(CancellationToken ct = default);
 }

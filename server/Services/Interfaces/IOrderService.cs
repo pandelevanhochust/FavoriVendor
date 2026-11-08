@@ -22,4 +22,9 @@ public interface IOrderService
         int limit,
         int page,
         CancellationToken ct);
+
+    Task<RevenueSummaryDto> GetRevenueSummaryAsync(
+        DateTime? fromUtc,
+        DateTime? toUtc,
+        CancellationToken ct = default);
 }

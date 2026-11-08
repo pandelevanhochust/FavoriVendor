@@ -28,6 +28,17 @@ export interface BankTransactionItem {
   receivedAt: string;
 }
 
+export interface RevenueSummaryDto {
+  transferRevenue: number;
+  cashRevenue: number;
+  totalRevenue: number;
+  transferCount: number;
+  cashCount: number;
+  totalCount: number;
+  totalOrders: number;
+  pendingOrders: number;
+}
+
 export interface DashboardMetrics {
   overview: {
     revenue: number;
@@ -47,24 +58,75 @@ export interface DashboardMetrics {
   recentTransactions: BankTransactionItem[];
 }
 
+export async function fetchRevenueSummary(params?: {
+  startDate?: string;
+  endDate?: string;
+  fromDate?: string;
+  toDate?: string;
+  date?: string;
+  tz?: number;
+}): Promise<RevenueSummaryDto> {
+  const res = await apiClient.get<RevenueSummaryDto>('/vendor/orders/revenue-summary', { params });
+  return res.data;
+}
+
 export async function fetchDashboardData(params?: {
+  startDate?: string;
+  endDate?: string;
   fromDate?: string;
   toDate?: string;
   date?: string;
 }): Promise<DashboardMetrics> {
-  const queryParams: Record<string, any> = { limit: 200 };
+  const queryParams: Record<string, any> = {};
   if (params?.date) queryParams.date = params.date;
   if (params?.fromDate) queryParams.fromDate = params.fromDate;
   if (params?.toDate) queryParams.toDate = params.toDate;
+  if (params?.startDate) queryParams.startDate = params.startDate;
+  if (params?.endDate) queryParams.endDate = params.endDate;
 
-  const [ordersRes, txnsRes] = await Promise.all([
-    apiClient.get<OrderItem[]>('/vendor/orders', { params: queryParams }).catch(() => ({ data: [] })),
-    apiClient.get<BankTransactionItem[]>('/vendor/transactions', { params: queryParams }).catch(() => ({ data: [] })),
+  const [summaryRes, ordersRes, txnsRes] = await Promise.all([
+    apiClient
+      .get<RevenueSummaryDto>('/vendor/orders/revenue-summary', { params: queryParams })
+      .catch(() => null),
+    apiClient
+      .get<OrderItem[]>('/vendor/orders', { params: { ...queryParams, limit: 30 } })
+      .catch(() => ({ data: [] })),
+    apiClient
+      .get<BankTransactionItem[]>('/vendor/transactions', { params: { ...queryParams, limit: 30 } })
+      .catch(() => ({ data: [] })),
   ]);
 
-  const orders = Array.isArray(ordersRes.data) ? ordersRes.data : [];
-  const txns = Array.isArray(txnsRes.data) ? txnsRes.data : [];
+  const orders = Array.isArray(ordersRes?.data) ? ordersRes.data : [];
+  const txns = Array.isArray(txnsRes?.data) ? txnsRes.data : [];
 
+  // Nếu API revenue-summary trả về thành công từ Database (không bị pagination)
+  if (summaryRes?.data) {
+    const s = summaryRes.data;
+    const grandTotal = s.transferRevenue + s.cashRevenue;
+    const qrPct = grandTotal > 0 ? Math.round((s.transferRevenue / grandTotal) * 100) : 50;
+    const cashPct = grandTotal > 0 ? 100 - qrPct : 50;
+
+    return {
+      overview: {
+        revenue: s.totalRevenue,
+        orders: s.totalOrders,
+        paidOrders: s.totalCount,
+        pendingOrders: s.pendingOrders,
+        qrRevenue: s.transferRevenue,
+        cashRevenue: s.cashRevenue,
+        qrCount: s.transferCount,
+        cashCount: s.cashCount,
+      },
+      paymentSources: {
+        qr: { count: s.transferCount, revenue: s.transferRevenue, percentage: qrPct },
+        cash: { count: s.cashCount, revenue: s.cashRevenue, percentage: cashPct },
+      },
+      recentOrders: orders,
+      recentTransactions: txns,
+    };
+  }
+
+  // Fallback nếu API summary chưa sẵn sàng: tính dựa trên danh sách orders
   let totalRevenue = 0;
   let paidCount = 0;
   let pendingCount = 0;
@@ -94,23 +156,6 @@ export async function fetchDashboardData(params?: {
     } else if ((o.status || '').toUpperCase() === 'PENDING') {
       pendingCount++;
     }
-  }
-
-  // Nếu orders chưa có đơn nào nhưng có giao dịch trong txns, lấy thêm từ txns
-  if (totalRevenue === 0 && txns.length > 0) {
-    for (const t of txns) {
-      const amt = Number(t.amount || 0);
-      const isCash = (t.transType || '').toUpperCase() === 'CASH' || (t.transactionId || '').startsWith('CASH-');
-      totalRevenue += amt;
-      if (isCash) {
-        cashCount++;
-        cashRevenue += amt;
-      } else {
-        qrCount++;
-        qrRevenue += amt;
-      }
-    }
-    paidCount = txns.length;
   }
 
   const grandTotal = qrRevenue + cashRevenue;

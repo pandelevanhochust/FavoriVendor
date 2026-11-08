@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using VietQrKiosk.Server.Entities;
 using VietQrKiosk.Server.Infra.Data;
+using VietQrKiosk.Server.Models;
 
 namespace VietQrKiosk.Server.Infra.Repositories;
 
@@ -161,6 +162,52 @@ public class OrderRepository : IOrderRepository
         }
 
         return await query.CountAsync(ct);
+    }
+
+    public async Task<RevenueSummaryDto> GetRevenueSummaryAsync(
+        DateTime? fromUtc = null,
+        DateTime? toUtc = null,
+        CancellationToken ct = default)
+    {
+        var query = _db.Orders.AsNoTracking().AsQueryable();
+
+        if (fromUtc.HasValue)
+        {
+            query = query.Where(o => o.CreatedAt >= fromUtc.Value);
+        }
+
+        if (toUtc.HasValue)
+        {
+            query = query.Where(o => o.CreatedAt <= toUtc.Value);
+        }
+
+        var totalOrders = await query.CountAsync(ct);
+        var pendingOrders = await query.CountAsync(o => o.Status == OrderStatus.Pending, ct);
+
+        var paidOrdersQuery = query.Where(o => o.Status == OrderStatus.Paid);
+
+        var cashQuery = paidOrdersQuery.Where(o => o.QrContent == "CASH" || (o.BankTransactionId != null && o.BankTransactionId.StartsWith("CASH-")));
+        var transferQuery = paidOrdersQuery.Where(o => o.QrContent != "CASH" && (o.BankTransactionId == null || !o.BankTransactionId.StartsWith("CASH-")));
+
+        var cashCount = await cashQuery.CountAsync(ct);
+        var cashRevenue = await cashQuery.SumAsync(o => (long?)o.Amount, ct) ?? 0L;
+
+        var transferCount = await transferQuery.CountAsync(ct);
+        var transferRevenue = await transferQuery.SumAsync(o => (long?)o.Amount, ct) ?? 0L;
+
+        var totalCount = cashCount + transferCount;
+        var totalRevenue = cashRevenue + transferRevenue;
+
+        return new RevenueSummaryDto(
+            TransferRevenue: transferRevenue,
+            CashRevenue: cashRevenue,
+            TotalRevenue: totalRevenue,
+            TransferCount: transferCount,
+            CashCount: cashCount,
+            TotalCount: totalCount,
+            TotalOrders: totalOrders,
+            PendingOrders: pendingOrders
+        );
     }
 
     public async Task SaveChangesAsync(CancellationToken ct = default)

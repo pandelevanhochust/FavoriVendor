@@ -198,4 +198,12 @@ public class OrderService : IOrderService
 
         return (dtos, totalCount);
     }
+
+    public Task<RevenueSummaryDto> GetRevenueSummaryAsync(
+        DateTime? fromUtc,
+        DateTime? toUtc,
+        CancellationToken ct = default)
+    {
+        return _orderRepo.GetRevenueSummaryAsync(fromUtc, toUtc, ct);
+    }
 }
