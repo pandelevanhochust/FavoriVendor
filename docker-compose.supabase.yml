@@ -1,0 +1,69 @@
+services:
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: vietqr-kiosk-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - PORT=8080
+      # Chuỗi kết nối trực tiếp đến PostgreSQL Supabase (hoặc nạp qua DATABASE_URL)
+      - DATABASE_URL=${DATABASE_URL}
+      - ConnectionStrings__Default=${ConnectionStrings__Default}
+      # Cấu hình VietQR
+      - VietQr__BaseUrl=${VietQr__BaseUrl:-https://dev.vietqr.org/}
+      - VietQr__BankCode=${VietQr__BankCode:-MB}
+      - VietQr__BankAccount=${VietQr__BankAccount}
+      - VietQr__AccountName=${VietQr__AccountName}
+      - VietQr__Username=${VietQr__Username}
+      - VietQr__Password=${VietQr__Password}
+      # Webhook Callback VietQR
+      - Callback__BasePath=${Callback__BasePath:-vietqr}
+      - Callback__Username=${Callback__Username}
+      - Callback__Password=${Callback__Password}
+      - Callback__JwtSecret=${Callback__JwtSecret}
+      # Kiosk Security
+      - Kiosk__ApiKey=${Kiosk__ApiKey}
+      - Kiosk__OrderTtlSeconds=${Kiosk__OrderTtlSeconds:-300}
+      # Tầng lưu trữ (Local Disk hoặc Cloudflare R2)
+      - Storage__Provider=${Storage__Provider:-Local}
+      - Storage__Local__BaseDirectory=data/uploads
+      - Storage__Local__PublicBaseUrl=/uploads
+      - Storage__R2__AccountId=${Storage__R2__AccountId:-}
+      - Storage__R2__AccessKeyId=${Storage__R2__AccessKeyId:-}
+      - Storage__R2__SecretAccessKey=${Storage__R2__SecretAccessKey:-}
+      - Storage__R2__BucketName=${Storage__R2__BucketName:-kiosk-assets}
+      - Storage__R2__PublicDomain=${Storage__R2__PublicDomain:-}
+    volumes:
+      - ./server/data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - kiosk-network
+
+  cms-fe:
+    build:
+      context: ./fe-cms
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+        NEXT_PUBLIC_KIOSK_API_KEY: ${Kiosk__ApiKey:-}
+    container_name: vietqr-kiosk-cms
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=production
+      - PORT=3002
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    depends_on:
+      - backend
+    networks:
+      - kiosk-network
+
+networks:
+  kiosk-network:
+    driver: bridge
