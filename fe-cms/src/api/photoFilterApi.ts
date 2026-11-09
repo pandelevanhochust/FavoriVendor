@@ -19,26 +19,26 @@ export async function getFilters(params?: {
   category?: string;
   onlyActive?: boolean;
 }): Promise<PhotoFilter[]> {
-  const res = await apiClient.get<PhotoFilter[]>('/api/filters', { params });
+  const res = await apiClient.get<PhotoFilter[]>('/api/presets', { params });
   return res.data;
 }
 
 export async function createFilter(formData: FormData): Promise<PhotoFilter> {
-  const res = await apiClient.post<PhotoFilter>('/api/filters', formData, {
+  const res = await apiClient.post<PhotoFilter>('/api/presets', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return res.data;
 }
 
 export async function updateFilter(id: number, formData: FormData): Promise<PhotoFilter> {
-  const res = await apiClient.put<PhotoFilter>(`/api/filters/${id}`, formData, {
+  const res = await apiClient.put<PhotoFilter>(`/api/presets/${id}`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return res.data;
 }
 
 export async function deleteFilter(id: number): Promise<void> {
-  await apiClient.delete(`/api/filters/${id}`);
+  await apiClient.delete(`/api/presets/${id}`);
 }
 
 export function resolveAssetUrl(url?: string): string {

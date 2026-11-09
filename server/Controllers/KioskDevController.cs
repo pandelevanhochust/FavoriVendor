@@ -8,11 +8,9 @@ using VietQrKiosk.Server.Services.Interfaces;
 
 namespace VietQrKiosk.Server.Controllers;
 
-/// <summary>
-/// Chỉ môi trường Development: giả lập khách đã chuyển khoản để thử app mà không cần VietQR.
-/// </summary>
 [ApiController]
 [Route("vendor/dev")]
+[Tags("Dev")]
 [KioskApiKey]
 public class KioskDevController : ControllerBase
 {
@@ -30,6 +28,7 @@ public class KioskDevController : ControllerBase
         _vietQrOptions = vietQrOptions.Value;
     }
 
+    /// <remarks>Chỉ môi trường Development: giả lập thanh toán cho đơn hàng.</remarks>
     [HttpPost("simulate-payment/{orderId}")]
     public async Task<IActionResult> SimulatePayment(string orderId, CancellationToken ct)
     {

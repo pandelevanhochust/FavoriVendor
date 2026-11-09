@@ -163,6 +163,22 @@ builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer((document, context, cancellationToken) =>
     {
+        document.Info.Title = "VietQR Kiosk & PhotoBooth API";
+        document.Info.Version = "v1.0";
+        document.Info.Description = "Production API specification for Kiosk order processing, VietQR payment verification, cash synchronization, and photo booth asset management.";
+
+        document.Components ??= new();
+        if (document.Components.SecuritySchemes != null)
+        {
+            document.Components.SecuritySchemes["KioskApiKey"] = new Microsoft.OpenApi.OpenApiSecurityScheme
+            {
+                Type = Microsoft.OpenApi.SecuritySchemeType.ApiKey,
+                Name = "X-Kiosk-Key",
+                In = Microsoft.OpenApi.ParameterLocation.Header,
+                Description = "Vendor API Key required for vendor and kiosk endpoints."
+            };
+        }
+
         if (document.Servers != null)
         {
             foreach (var server in document.Servers)

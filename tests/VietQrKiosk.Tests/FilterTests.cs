@@ -133,4 +133,67 @@ public class FilterTests
         Assert.Single(pendingOrders);
         Assert.Equal("ORD-PENDING", pendingOrders[0].OrderId);
     }
+
+    [Fact]
+    public void ParseDateFilter_DateTimeIsoWithExplicitOffset_ParsesCorrectly()
+    {
+        var (fromUtc, toUtc) = Helpers.ParseDateFilter(null, "2026-10-22T08:30:00+07:00", "2026-10-22T12:00:00+07:00", tzOffsetHours: 7);
+
+        Assert.NotNull(fromUtc);
+        Assert.NotNull(toUtc);
+        Assert.Equal(new DateTime(2026, 10, 22, 1, 30, 0, DateTimeKind.Utc), fromUtc.Value);
+        Assert.Equal(new DateTime(2026, 10, 22, 5, 0, 0, DateTimeKind.Utc), toUtc.Value);
+    }
+
+    [Fact]
+    public void ParseDateFilter_DateTimeIsoUtc_ParsesCorrectly()
+    {
+        var (fromUtc, toUtc) = Helpers.ParseDateFilter(null, "2026-10-22T01:30:00Z", "2026-10-22T05:00:00Z", tzOffsetHours: 7);
+
+        Assert.NotNull(fromUtc);
+        Assert.NotNull(toUtc);
+        Assert.Equal(new DateTime(2026, 10, 22, 1, 30, 0, DateTimeKind.Utc), fromUtc.Value);
+        Assert.Equal(new DateTime(2026, 10, 22, 5, 0, 0, DateTimeKind.Utc), toUtc.Value);
+    }
+
+    [Fact]
+    public async Task InMemoryTransactionRepository_BankTransactionWithNullFields_IncludedInBankFilter()
+    {
+        var repo = new InMemoryTransactionRepository();
+
+        await repo.AddAsync(new BankTransaction
+        {
+            TransactionId = "BANK-NULL-ACCOUNT",
+            TransType = "C",
+            BankAccount = null,
+            Amount = 50000,
+            Content = "Transfer from mobile app",
+            Result = "PAID",
+            ReceivedAt = DateTime.UtcNow
+        });
+
+        var bankTxns = await repo.GetTransactionsFilteredAsync(type: "bank");
+        Assert.Single(bankTxns);
+        Assert.Equal("BANK-NULL-ACCOUNT", bankTxns[0].TransactionId);
+    }
+
+    [Fact]
+    public async Task InMemoryOrderRepository_BankOrderWithNullQrContent_IncludedInBankFilter()
+    {
+        var repo = new InMemoryOrderRepository();
+
+        await repo.AddAsync(new Order
+        {
+            OrderId = "ORD-NULL-QR",
+            Status = OrderStatus.Paid,
+            QrContent = null,
+            BankTransactionId = "TXN-1234",
+            Amount = 70000,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        var bankOrders = await repo.GetOrdersFilteredAsync(paymentType: "bank");
+        Assert.Single(bankOrders);
+        Assert.Equal("ORD-NULL-QR", bankOrders[0].OrderId);
+    }
 }

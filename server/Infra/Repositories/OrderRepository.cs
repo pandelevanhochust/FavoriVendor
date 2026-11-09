@@ -105,11 +105,11 @@ public class OrderRepository : IOrderRepository
             var pType = paymentType.Trim().ToLowerInvariant();
             if (pType is "cash" or "tien_mat")
             {
-                query = query.Where(o => o.QrContent == "CASH" || (o.BankTransactionId != null && o.BankTransactionId.StartsWith("CASH-")));
+                query = query.Where(o => (o.QrContent != null && (o.QrContent == "CASH" || o.QrContent == "cash")) || (o.BankTransactionId != null && o.BankTransactionId.StartsWith("CASH-")));
             }
             else if (pType is "bank" or "vietqr" or "transfer" or "chuyen_khoan")
             {
-                query = query.Where(o => o.QrContent != "CASH" && (o.BankTransactionId == null || !o.BankTransactionId.StartsWith("CASH-")));
+                query = query.Where(o => (o.QrContent == null || (o.QrContent != "CASH" && o.QrContent != "cash")) && (o.BankTransactionId == null || !o.BankTransactionId.StartsWith("CASH-")));
             }
         }
 
@@ -153,11 +153,11 @@ public class OrderRepository : IOrderRepository
             var pType = paymentType.Trim().ToLowerInvariant();
             if (pType is "cash" or "tien_mat")
             {
-                query = query.Where(o => o.QrContent == "CASH" || (o.BankTransactionId != null && o.BankTransactionId.StartsWith("CASH-")));
+                query = query.Where(o => (o.QrContent != null && (o.QrContent == "CASH" || o.QrContent == "cash")) || (o.BankTransactionId != null && o.BankTransactionId.StartsWith("CASH-")));
             }
             else if (pType is "bank" or "vietqr" or "transfer" or "chuyen_khoan")
             {
-                query = query.Where(o => o.QrContent != "CASH" && (o.BankTransactionId == null || !o.BankTransactionId.StartsWith("CASH-")));
+                query = query.Where(o => (o.QrContent == null || (o.QrContent != "CASH" && o.QrContent != "cash")) && (o.BankTransactionId == null || !o.BankTransactionId.StartsWith("CASH-")));
             }
         }
 
@@ -186,8 +186,8 @@ public class OrderRepository : IOrderRepository
 
         var paidOrdersQuery = query.Where(o => o.Status == OrderStatus.Paid);
 
-        var cashQuery = paidOrdersQuery.Where(o => o.QrContent == "CASH" || (o.BankTransactionId != null && o.BankTransactionId.StartsWith("CASH-")));
-        var transferQuery = paidOrdersQuery.Where(o => o.QrContent != "CASH" && (o.BankTransactionId == null || !o.BankTransactionId.StartsWith("CASH-")));
+        var cashQuery = paidOrdersQuery.Where(o => (o.QrContent != null && (o.QrContent == "CASH" || o.QrContent == "cash")) || (o.BankTransactionId != null && o.BankTransactionId.StartsWith("CASH-")));
+        var transferQuery = paidOrdersQuery.Where(o => (o.QrContent == null || (o.QrContent != "CASH" && o.QrContent != "cash")) && (o.BankTransactionId == null || !o.BankTransactionId.StartsWith("CASH-")));
 
         var cashCount = await cashQuery.CountAsync(ct);
         var cashRevenue = await cashQuery.SumAsync(o => (long?)o.Amount, ct) ?? 0L;

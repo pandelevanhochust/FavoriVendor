@@ -81,67 +81,67 @@ public static class Helpers
             Transaction: txn);
     }
 
-    public static (DateTime? FromUtc, DateTime? ToUtc) ParseDateFilter(
-        string? date, string? fromDate, string? toDate, int tzOffsetHours = 7)
+    public static (DateTime? FromUtc, DateTime? ToUtc) ParseDateRange(
+        string? startDate, string? endDate, int tzOffsetHours = 7)
     {
         var tz = TimeSpan.FromHours(tzOffsetHours);
 
-        // 1. Nếu có param "date" -> lấy trọn vẹn từ 00:00:00 đến 23:59:59.999 của ngày đó theo múi giờ
-        if (!string.IsNullOrWhiteSpace(date))
+        // Trường hợp chỉ truyền startDate (ví dụ '2026-11-09') mà không truyền endDate
+        if (!string.IsNullOrWhiteSpace(startDate) && string.IsNullOrWhiteSpace(endDate))
         {
-            if (DateTime.TryParse(date.Trim(), out var parsedDate))
-            {
-                var dayStartLocal = new DateTime(parsedDate.Year, parsedDate.Month, parsedDate.Day, 0, 0, 0, DateTimeKind.Unspecified);
-                var dayEndLocal = new DateTime(parsedDate.Year, parsedDate.Month, parsedDate.Day, 23, 59, 59, 999, DateTimeKind.Unspecified);
-
-                var startUtc = DateTime.SpecifyKind(dayStartLocal - tz, DateTimeKind.Utc);
-                var endUtc = DateTime.SpecifyKind(dayEndLocal - tz, DateTimeKind.Utc);
-                return (startUtc, endUtc);
-            }
+            DateTime? from = ParseDateTimePoint(startDate, isEndOfDay: false, tz);
+            DateTime? to = !startDate.Contains(':')
+                ? ParseDateTimePoint(startDate, isEndOfDay: true, tz)
+                : null;
+            return (from, to);
         }
 
-        DateTime? fromUtc = null;
-        DateTime? toUtc = null;
-
-        if (!string.IsNullOrWhiteSpace(fromDate))
-        {
-            var trimmedFrom = fromDate.Trim();
-            if (DateTime.TryParse(trimmedFrom, out var dtFrom) && !trimmedFrom.Contains(':'))
-            {
-                var localFrom = new DateTime(dtFrom.Year, dtFrom.Month, dtFrom.Day, 0, 0, 0, DateTimeKind.Unspecified);
-                fromUtc = DateTime.SpecifyKind(localFrom - tz, DateTimeKind.Utc);
-            }
-            else if (DateTimeOffset.TryParse(trimmedFrom, out var dtoFrom))
-            {
-                fromUtc = dtoFrom.UtcDateTime;
-            }
-            else if (DateTime.TryParse(trimmedFrom, out dtFrom))
-            {
-                var localFrom = new DateTime(dtFrom.Year, dtFrom.Month, dtFrom.Day, 0, 0, 0, DateTimeKind.Unspecified);
-                fromUtc = DateTime.SpecifyKind(localFrom - tz, DateTimeKind.Utc);
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(toDate))
-        {
-            var trimmedTo = toDate.Trim();
-            if (DateTime.TryParse(trimmedTo, out var dtTo) && !trimmedTo.Contains(':'))
-            {
-                var localTo = new DateTime(dtTo.Year, dtTo.Month, dtTo.Day, 23, 59, 59, 999, DateTimeKind.Unspecified);
-                toUtc = DateTime.SpecifyKind(localTo - tz, DateTimeKind.Utc);
-            }
-            else if (DateTimeOffset.TryParse(trimmedTo, out var dtoTo))
-            {
-                toUtc = dtoTo.UtcDateTime;
-            }
-            else if (DateTime.TryParse(trimmedTo, out dtTo))
-            {
-                var localTo = new DateTime(dtTo.Year, dtTo.Month, dtTo.Day, 23, 59, 59, 999, DateTimeKind.Unspecified);
-                toUtc = DateTime.SpecifyKind(localTo - tz, DateTimeKind.Utc);
-            }
-        }
+        DateTime? fromUtc = ParseDateTimePoint(startDate, isEndOfDay: false, tz);
+        DateTime? toUtc = ParseDateTimePoint(endDate, isEndOfDay: true, tz);
 
         return (fromUtc, toUtc);
+    }
+
+    public static (DateTime? FromUtc, DateTime? ToUtc) ParseDateFilter(
+        string? date, string? fromDate, string? toDate, int tzOffsetHours = 7)
+    {
+        if (!string.IsNullOrWhiteSpace(date))
+        {
+            return ParseDateRange(date, date, tzOffsetHours);
+        }
+        return ParseDateRange(fromDate, toDate, tzOffsetHours);
+    }
+
+    private static DateTime? ParseDateTimePoint(string? input, bool isEndOfDay, TimeSpan tz)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return null;
+        var trimmed = input.Trim();
+
+        bool hasExplicitOffset = trimmed.EndsWith("Z", StringComparison.OrdinalIgnoreCase) ||
+            (trimmed.Contains(':') && System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"[+-]\d{2}(:?\d{2})?$"));
+
+        if (hasExplicitOffset && DateTimeOffset.TryParse(trimmed, out var dto))
+        {
+            return dto.UtcDateTime;
+        }
+
+        if (DateTime.TryParse(trimmed, out var dt))
+        {
+            if (!trimmed.Contains(':'))
+            {
+                var local = isEndOfDay
+                    ? new DateTime(dt.Year, dt.Month, dt.Day, 23, 59, 59, 999, DateTimeKind.Unspecified)
+                    : new DateTime(dt.Year, dt.Month, dt.Day, 0, 0, 0, DateTimeKind.Unspecified);
+                return DateTime.SpecifyKind(local - tz, DateTimeKind.Utc);
+            }
+            else
+            {
+                var local = new DateTime(dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second, dt.Millisecond, DateTimeKind.Unspecified);
+                return DateTime.SpecifyKind(local - tz, DateTimeKind.Utc);
+            }
+        }
+
+        return null;
     }
 
     public static void Require(bool ok, string message)

@@ -7,7 +7,6 @@ using VietQrKiosk.Server.Services;
 
 namespace VietQrKiosk.Server.Controllers;
 
-/// <summary>Kiểm tra header X-Api-Key cho các API dành cho máy Kiosk (Android).</summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
 public sealed class KioskApiKeyAttribute : Attribute, IAsyncActionFilter
 {
@@ -27,4 +26,3 @@ public sealed class KioskApiKeyAttribute : Attribute, IAsyncActionFilter
         await next();
     }
 }
-

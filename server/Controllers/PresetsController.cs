@@ -7,23 +7,31 @@ using VietQrKiosk.Server.Services.Interfaces;
 namespace VietQrKiosk.Server.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
-public class FiltersController : ControllerBase
+[Route("api/presets")]
+[Tags("Presets")]
+public class PresetsController : ControllerBase
 {
     private readonly IPhotoFilterRepository _filterRepo;
     private readonly IStorageService _storageService;
-    private readonly ILogger<FiltersController> _logger;
+    private readonly ILogger<PresetsController> _logger;
 
-    public FiltersController(
+    public PresetsController(
         IPhotoFilterRepository filterRepo,
         IStorageService storageService,
-        ILogger<FiltersController> logger)
+        ILogger<PresetsController> logger)
     {
         _filterRepo = filterRepo;
         _storageService = storageService;
         _logger = logger;
     }
 
+    /// <remarks>
+    /// Retrieves a list of photo filters with optional category and active status filters.
+    /// </remarks>
+    /// <param name="category" example="Vintage">Optional filter category name (e.g. Vintage, Film, B&amp;W, Mood, General).</param>
+    /// <param name="onlyActive" example="false">If true, returns only active filters enabled for kiosk display.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>List of PhotoFilterDto items.</returns>
     [HttpGet]
     public async Task<ActionResult<List<PhotoFilterDto>>> GetAll(
         [FromQuery] string? category = null,
@@ -34,14 +42,35 @@ public class FiltersController : ControllerBase
         return Ok(filters.Select(MapToDto).ToList());
     }
 
+    /// <remarks>
+    /// Retrieves a specific photo filter by its unique integer identifier.
+    /// </remarks>
+    /// <param name="id" example="1">Unique integer identifier of the filter.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Matching PhotoFilterDto.</returns>
     [HttpGet("{id:int}")]
     public async Task<ActionResult<PhotoFilterDto>> GetById(int id, CancellationToken ct = default)
     {
         var filter = await _filterRepo.GetByIdAsync(id, ct);
-        if (filter == null) return NotFound(new ErrorBody($"Không tìm thấy bộ lọc có id={id}"));
+        if (filter == null) return NotFound(new ErrorBody($"Filter with id={id} not found"));
         return Ok(MapToDto(filter));
     }
 
+    /// <remarks>
+    /// Creates and uploads a new photo filter (LUT file and thumbnail).
+    /// </remarks>
+    /// <param name="code" example="film_grain_01">Unique code identifier for the filter (e.g. film_grain_01, vintage_warm).</param>
+    /// <param name="name" example="Warm Film Grain">Display name shown on the kiosk interface.</param>
+    /// <param name="category" example="Film">Filter category (e.g. Vintage, Film, B&amp;W, General).</param>
+    /// <param name="type" example="LUT">Filter type. Allowed Enum values: 'LUT', 'Preset'.</param>
+    /// <param name="intensityDefault" example="1.0">Default filter intensity (range: 0.0 to 1.0, default: 1.0).</param>
+    /// <param name="displayOrder" example="0">Sorting priority index.</param>
+    /// <param name="isActive" example="true">Whether the filter is active and visible to customers.</param>
+    /// <param name="configJson" example="{}">Optional JSON configuration for preset adjustments (brightness, contrast, grain).</param>
+    /// <param name="lutFile">LUT image file in .PNG or .CUBE format.</param>
+    /// <param name="thumbnailFile">Preview thumbnail image file.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Created PhotoFilterDto.</returns>
     [HttpPost]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<PhotoFilterDto>> Create(
@@ -59,14 +88,14 @@ public class FiltersController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name))
         {
-            return BadRequest(new ErrorBody("Mã Code và Tên bộ lọc không được để trống."));
+            return BadRequest(new ErrorBody("Code and Name cannot be empty."));
         }
 
         var cleanCode = code.Trim().ToLowerInvariant().Replace(" ", "_");
         var existing = await _filterRepo.GetByCodeAsync(cleanCode, ct);
         if (existing != null)
         {
-            return Conflict(new ErrorBody($"Mã bộ lọc '{cleanCode}' đã tồn tại trong hệ thống."));
+            return Conflict(new ErrorBody($"Filter code '{cleanCode}' already exists in the system."));
         }
 
         var filterType = string.Equals(type, "Preset", StringComparison.OrdinalIgnoreCase) ? "Preset" : "LUT";
@@ -77,7 +106,7 @@ public class FiltersController : ControllerBase
             var ext = Path.GetExtension(lutFile.FileName).ToLowerInvariant();
             if (ext != ".png" && ext != ".cube")
             {
-                return BadRequest(new ErrorBody("File LUT bắt buộc phải có định dạng ảnh .PNG hoặc .CUBE."));
+                return BadRequest(new ErrorBody("LUT file must have .PNG or .CUBE extension."));
             }
 
             using var stream = lutFile.OpenReadStream();
@@ -85,7 +114,7 @@ public class FiltersController : ControllerBase
         }
         else if (filterType == "LUT")
         {
-            return BadRequest(new ErrorBody("Bộ lọc loại 'LUT' bắt buộc phải tải lên file ảnh LUT PNG."));
+            return BadRequest(new ErrorBody("LUT filters require a LUT PNG file upload."));
         }
 
         string? thumbUrl = null;
@@ -118,6 +147,21 @@ public class FiltersController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = filter.Id }, MapToDto(filter));
     }
 
+    /// <remarks>
+    /// Updates an existing photo filter configuration, LUT file, or thumbnail.
+    /// </remarks>
+    /// <param name="id" example="1">Unique integer identifier of the filter.</param>
+    /// <param name="name" example="Warm Film Grain Updated">Updated display name.</param>
+    /// <param name="category" example="Film">Updated category name.</param>
+    /// <param name="type" example="LUT">Filter type ('LUT' or 'Preset').</param>
+    /// <param name="intensityDefault" example="0.8">Updated default intensity.</param>
+    /// <param name="displayOrder" example="1">Updated display order.</param>
+    /// <param name="isActive" example="true">Updated visibility status.</param>
+    /// <param name="configJson" example="{}">Updated config JSON.</param>
+    /// <param name="lutFile">Replacement LUT file (optional).</param>
+    /// <param name="thumbnailFile">Replacement thumbnail file (optional).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Updated PhotoFilterDto.</returns>
     [HttpPut("{id:int}")]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<PhotoFilterDto>> Update(
@@ -134,7 +178,7 @@ public class FiltersController : ControllerBase
         CancellationToken ct = default)
     {
         var filter = await _filterRepo.GetByIdAsync(id, ct);
-        if (filter == null) return NotFound(new ErrorBody($"Không tìm thấy bộ lọc có id={id}"));
+        if (filter == null) return NotFound(new ErrorBody($"Filter with id={id} not found"));
 
         filter.Name = name.Trim();
         if (!string.IsNullOrWhiteSpace(category)) filter.Category = category.Trim();
@@ -144,7 +188,6 @@ public class FiltersController : ControllerBase
         if (isActive.HasValue) filter.IsActive = isActive.Value;
         if (configJson != null) filter.ConfigJson = configJson.Trim();
 
-        // Thay file LUT nếu có upload
         if (lutFile != null && lutFile.Length > 0)
         {
             var oldLut = filter.LutUrl;
@@ -157,7 +200,6 @@ public class FiltersController : ControllerBase
             }
         }
 
-        // Thay file Thumbnail nếu có
         if (thumbnailFile != null && thumbnailFile.Length > 0)
         {
             var oldThumb = filter.ThumbnailUrl;
@@ -177,11 +219,16 @@ public class FiltersController : ControllerBase
         return Ok(MapToDto(filter));
     }
 
+    /// <remarks>
+    /// Deletes a photo filter and its associated storage assets.
+    /// </remarks>
+    /// <param name="id" example="1">Unique integer identifier of the filter.</param>
+    /// <param name="ct">Cancellation token.</param>
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken ct = default)
     {
         var filter = await _filterRepo.GetByIdAsync(id, ct);
-        if (filter == null) return NotFound(new ErrorBody($"Không tìm thấy bộ lọc có id={id}"));
+        if (filter == null) return NotFound(new ErrorBody($"Filter with id={id} not found"));
 
         var lutUrl = filter.LutUrl;
         var thumbUrl = filter.ThumbnailUrl;

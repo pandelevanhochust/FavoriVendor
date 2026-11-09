@@ -7,7 +7,8 @@ using VietQrKiosk.Server.Models;
 namespace VietQrKiosk.Server.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/layouts")]
+[Tags("Layouts")]
 public class LayoutsController : ControllerBase
 {
     private readonly IPhotoLayoutRepository _layoutRepo;
@@ -19,6 +20,12 @@ public class LayoutsController : ControllerBase
         _logger = logger;
     }
 
+    /// <remarks>
+    /// Retrieves all photo layout formats with print dimensions and pricing tiers.
+    /// </remarks>
+    /// <param name="onlyActive" example="false">If true, returns only active layouts enabled on the kiosk.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>List of PhotoLayoutDto items.</returns>
     [HttpGet]
     public async Task<ActionResult<List<PhotoLayoutDto>>> GetAll([FromQuery] bool onlyActive = false, CancellationToken ct = default)
     {
@@ -27,26 +34,38 @@ public class LayoutsController : ControllerBase
         return Ok(dtos);
     }
 
+    /// <remarks>
+    /// Retrieves layout specifications by unique string code identifier.
+    /// </remarks>
+    /// <param name="id" example="strips_2x6">Unique layout format code (e.g. 'strips_2x6', 'grid_4x6', 'postcard_4x6').</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Matching PhotoLayoutDto details.</returns>
     [HttpGet("{id}")]
     public async Task<ActionResult<PhotoLayoutDto>> GetById(string id, CancellationToken ct = default)
     {
         var layout = await _layoutRepo.GetByIdAsync(id, ct);
-        if (layout == null) return NotFound(new ErrorBody($"Không tìm thấy khổ ảnh có mã '{id}'"));
+        if (layout == null) return NotFound(new ErrorBody($"Photo layout '{id}' not found."));
         return Ok(MapToDto(layout));
     }
 
+    /// <remarks>
+    /// Creates a new photo print layout format with dimensions and tiered pricing.
+    /// </remarks>
+    /// <param name="request">Layout creation payload with dimensions in pixels and hole counts.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Created PhotoLayoutDto.</returns>
     [HttpPost]
     public async Task<ActionResult<PhotoLayoutDto>> Create([FromBody] CreateOrUpdateLayoutRequest request, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.Id) || string.IsNullOrWhiteSpace(request.Name))
         {
-            return BadRequest(new ErrorBody("Mã Id và Tên khổ ảnh không được để trống."));
+            return BadRequest(new ErrorBody("Layout ID and Name cannot be empty."));
         }
 
         var existing = await _layoutRepo.GetByIdAsync(request.Id, ct);
         if (existing != null)
         {
-            return Conflict(new ErrorBody($"Khổ ảnh với mã '{request.Id}' đã tồn tại."));
+            return Conflict(new ErrorBody($"Layout with code '{request.Id}' already exists."));
         }
 
         var tiersJson = request.PricingTiers != null && request.PricingTiers.Count > 0
@@ -80,11 +99,18 @@ public class LayoutsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = layout.Id }, MapToDto(layout));
     }
 
+    /// <remarks>
+    /// Updates an existing photo print layout configuration.
+    /// </remarks>
+    /// <param name="id" example="strips_2x6">Unique layout format code.</param>
+    /// <param name="request">Updated layout parameters.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Updated PhotoLayoutDto.</returns>
     [HttpPut("{id}")]
     public async Task<ActionResult<PhotoLayoutDto>> Update(string id, [FromBody] CreateOrUpdateLayoutRequest request, CancellationToken ct = default)
     {
         var layout = await _layoutRepo.GetByIdAsync(id, ct);
-        if (layout == null) return NotFound(new ErrorBody($"Không tìm thấy khổ ảnh có mã '{id}'"));
+        if (layout == null) return NotFound(new ErrorBody($"Photo layout '{id}' not found."));
 
         var tiersJson = request.PricingTiers != null && request.PricingTiers.Count > 0
             ? JsonSerializer.Serialize(request.PricingTiers)
@@ -107,11 +133,16 @@ public class LayoutsController : ControllerBase
         return Ok(MapToDto(layout));
     }
 
+    /// <remarks>
+    /// Deletes a photo layout by code ID.
+    /// </remarks>
+    /// <param name="id" example="strips_2x6">Unique layout format code.</param>
+    /// <param name="ct">Cancellation token.</param>
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id, CancellationToken ct = default)
     {
         var success = await _layoutRepo.DeleteAsync(id, ct);
-        if (!success) return NotFound(new ErrorBody($"Không tìm thấy khổ ảnh có mã '{id}'"));
+        if (!success) return NotFound(new ErrorBody($"Photo layout '{id}' not found."));
         await _layoutRepo.SaveChangesAsync(ct);
         return NoContent();
     }

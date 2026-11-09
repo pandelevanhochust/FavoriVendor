@@ -2,10 +2,6 @@ using Microsoft.AspNetCore.Mvc.ApplicationModels;
 
 namespace VietQrKiosk.Server.Controllers;
 
-/// <summary>
-/// - Thay token [callbackBasePath] trong route của VietQrCallbackController bằng Callback:BasePath từ cấu hình.
-/// - Ẩn KioskDevController khi không ở môi trường Development.
-/// </summary>
 public sealed class ControllerRouteConvention(string callbackBasePath, bool isDevelopment)
     : IApplicationModelConvention
 {
@@ -37,4 +33,3 @@ public sealed class ControllerRouteConvention(string callbackBasePath, bool isDe
         }
     }
 }
-

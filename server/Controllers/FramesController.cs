@@ -8,7 +8,8 @@ using VietQrKiosk.Server.Services.Interfaces;
 namespace VietQrKiosk.Server.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/frames")]
+[Tags("Frames")]
 public class FramesController : ControllerBase
 {
     private readonly IPhotoFrameRepository _frameRepo;
@@ -28,6 +29,14 @@ public class FramesController : ControllerBase
         _logger = logger;
     }
 
+    /// <remarks>
+    /// Retrieves a list of photo frames with optional filtering by layout ID, category ID, and active status.
+    /// </remarks>
+    /// <param name="layoutId" example="strips_2x6">Filter by layout format identifier (e.g. 'strips_2x6', 'grid_4x6', 'postcard_4x6').</param>
+    /// <param name="categoryId" example="1">Filter by category integer identifier.</param>
+    /// <param name="onlyActive" example="false">If true, returns only active frames enabled for customer selection.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>List of PhotoFrameDto items.</returns>
     [HttpGet]
     public async Task<ActionResult<List<PhotoFrameDto>>> GetAll(
         [FromQuery] string? layoutId = null,
@@ -39,14 +48,32 @@ public class FramesController : ControllerBase
         return Ok(frames.Select(MapToDto).ToList());
     }
 
+    /// <remarks>
+    /// Retrieves a specific photo frame by its unique integer identifier.
+    /// </remarks>
+    /// <param name="id" example="1">Unique integer identifier of the photo frame.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Matching PhotoFrameDto details including hole coordinates.</returns>
     [HttpGet("{id:int}")]
     public async Task<ActionResult<PhotoFrameDto>> GetById(int id, CancellationToken ct = default)
     {
         var frame = await _frameRepo.GetByIdAsync(id, ct);
-        if (frame == null) return NotFound(new ErrorBody($"Không tìm thấy khung ảnh có id={id}"));
+        if (frame == null) return NotFound(new ErrorBody($"Photo frame with id={id} not found."));
         return Ok(MapToDto(frame));
     }
 
+    /// <remarks>
+    /// Uploads a new transparent PNG photo frame and configures its hole coordinates.
+    /// </remarks>
+    /// <param name="file">Transparent PNG frame image file with alpha channel.</param>
+    /// <param name="layoutId" example="strips_2x6">Target layout format identifier.</param>
+    /// <param name="name" example="Summer Vintage 2026">Display name for the frame.</param>
+    /// <param name="categoryId" example="1">Associated category ID.</param>
+    /// <param name="holesJson" example="[{&quot;x&quot;:50,&quot;y&quot;:80,&quot;width&quot;:500,&quot;height&quot;:350}]">JSON array of photo hole rectangles in pixels.</param>
+    /// <param name="displayOrder" example="0">Sorting order on kiosk display.</param>
+    /// <param name="isActive" example="true">Whether the frame is active and visible.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Created PhotoFrameDto.</returns>
     [HttpPost]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<PhotoFrameDto>> Create(
@@ -61,27 +88,26 @@ public class FramesController : ControllerBase
     {
         if (file == null || file.Length == 0)
         {
-            return BadRequest(new ErrorBody("Bắt buộc phải tải lên file ảnh khung (PNG)."));
+            return BadRequest(new ErrorBody("Photo frame PNG file upload is required."));
         }
 
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (ext != ".png")
         {
-            return BadRequest(new ErrorBody("Khung ảnh bắt buộc phải có định dạng .PNG trong suốt (Alpha channel)."));
+            return BadRequest(new ErrorBody("Photo frames must be in transparent .PNG format with alpha channel."));
         }
 
         if (string.IsNullOrWhiteSpace(layoutId) || string.IsNullOrWhiteSpace(name))
         {
-            return BadRequest(new ErrorBody("Vui lòng chọn Khổ ảnh (layoutId) và đặt tên cho khung ảnh."));
+            return BadRequest(new ErrorBody("Layout ID and Frame Name are required."));
         }
 
         var layout = await _layoutRepo.GetByIdAsync(layoutId, ct);
         if (layout == null)
         {
-            return BadRequest(new ErrorBody($"Khổ ảnh '{layoutId}' không tồn tại trong hệ thống."));
+            return BadRequest(new ErrorBody($"Layout '{layoutId}' does not exist in the system."));
         }
 
-        // Upload file qua IStorageService (Local hoặc Cloudflare R2)
         string fileUrl;
         using (var stream = file.OpenReadStream())
         {
@@ -111,6 +137,19 @@ public class FramesController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = frame.Id }, MapToDto(frame));
     }
 
+    /// <remarks>
+    /// Updates an existing photo frame configuration or replaces its image asset.
+    /// </remarks>
+    /// <param name="id" example="1">Unique integer identifier of the photo frame.</param>
+    /// <param name="file">Optional replacement PNG frame image file.</param>
+    /// <param name="layoutId" example="strips_2x6">Layout format identifier.</param>
+    /// <param name="name" example="Summer Vintage 2026 Updated">Updated frame name.</param>
+    /// <param name="categoryId" example="1">Updated category ID.</param>
+    /// <param name="holesJson" example="[]">Updated photo hole coordinates JSON array.</param>
+    /// <param name="displayOrder" example="1">Updated display order.</param>
+    /// <param name="isActive" example="true">Updated visibility status.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Updated PhotoFrameDto.</returns>
     [HttpPut("{id:int}")]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<PhotoFrameDto>> Update(
@@ -125,12 +164,12 @@ public class FramesController : ControllerBase
         CancellationToken ct = default)
     {
         var frame = await _frameRepo.GetByIdAsync(id, ct);
-        if (frame == null) return NotFound(new ErrorBody($"Không tìm thấy khung ảnh có id={id}"));
+        if (frame == null) return NotFound(new ErrorBody($"Photo frame with id={id} not found."));
 
         if (!string.IsNullOrWhiteSpace(layoutId) && layoutId != frame.LayoutId)
         {
             var layout = await _layoutRepo.GetByIdAsync(layoutId, ct);
-            if (layout == null) return BadRequest(new ErrorBody($"Khổ ảnh '{layoutId}' không tồn tại."));
+            if (layout == null) return BadRequest(new ErrorBody($"Layout '{layoutId}' does not exist."));
             frame.LayoutId = layoutId;
         }
 
@@ -140,13 +179,12 @@ public class FramesController : ControllerBase
         frame.IsActive = isActive;
         if (!string.IsNullOrWhiteSpace(holesJson)) frame.HolesJson = holesJson.Trim();
 
-        // Nếu có upload file mới thay thế
         if (file != null && file.Length > 0)
         {
             var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
             if (ext != ".png")
             {
-                return BadRequest(new ErrorBody("Khung ảnh bắt buộc phải có định dạng .PNG trong suốt."));
+                return BadRequest(new ErrorBody("Photo frames must be in transparent .PNG format."));
             }
 
             var oldUrl = frame.FrameUrl;
@@ -156,7 +194,6 @@ public class FramesController : ControllerBase
                 frame.ThumbnailUrl = frame.FrameUrl;
             }
 
-            // Xoá file cũ nếu thành công
             if (!string.IsNullOrWhiteSpace(oldUrl) && oldUrl != frame.FrameUrl)
             {
                 _ = _storageService.DeleteFileAsync(oldUrl, ct);
@@ -170,18 +207,22 @@ public class FramesController : ControllerBase
         return Ok(MapToDto(frame));
     }
 
+    /// <remarks>
+    /// Deletes a photo frame and removes its associated storage assets.
+    /// </remarks>
+    /// <param name="id" example="1">Unique integer identifier of the photo frame.</param>
+    /// <param name="ct">Cancellation token.</param>
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, CancellationToken ct = default)
     {
         var frame = await _frameRepo.GetByIdAsync(id, ct);
-        if (frame == null) return NotFound(new ErrorBody($"Không tìm thấy khung ảnh có id={id}"));
+        if (frame == null) return NotFound(new ErrorBody($"Photo frame with id={id} not found."));
 
         var fileUrl = frame.FrameUrl;
         var success = await _frameRepo.DeleteAsync(id, ct);
         if (success)
         {
             await _frameRepo.SaveChangesAsync(ct);
-            // Xoá file trên storage nếu có
             if (!string.IsNullOrWhiteSpace(fileUrl))
             {
                 _ = _storageService.DeleteFileAsync(fileUrl, ct);
