@@ -158,6 +158,36 @@ BEGIN
     CREATE INDEX IF NOT EXISTS ix_photo_filters_category ON public.photo_filters(""Category"");
     CREATE INDEX IF NOT EXISTS ix_photo_filters_is_active ON public.photo_filters(""IsActive"");
     CREATE INDEX IF NOT EXISTS ix_photo_filters_display_order ON public.photo_filters(""DisplayOrder"");
+    -- 8. Bảng users
+    CREATE TABLE IF NOT EXISTS public.users (
+        ""Id"" SERIAL PRIMARY KEY,
+        ""Username"" VARCHAR(50) NOT NULL UNIQUE,
+        ""Email"" VARCHAR(150),
+        ""PasswordHash"" VARCHAR(255) NOT NULL,
+        ""FullName"" VARCHAR(100) NOT NULL,
+        ""Role"" VARCHAR(20) NOT NULL DEFAULT 'Admin',
+        ""IsActive"" BOOLEAN NOT NULL DEFAULT TRUE,
+        ""CreatedAt"" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ""LastLoginAt"" TIMESTAMPTZ
+    );
+
+    CREATE INDEX IF NOT EXISTS ix_users_username ON public.users(""Username"");
+    CREATE INDEX IF NOT EXISTS ix_users_role ON public.users(""Role"");
+
+    -- 9. Bảng refresh_tokens
+    CREATE TABLE IF NOT EXISTS public.refresh_tokens (
+        ""Id"" SERIAL PRIMARY KEY,
+        ""UserId"" INT NOT NULL REFERENCES public.users(""Id"") ON DELETE CASCADE,
+        ""Token"" VARCHAR(255) NOT NULL UNIQUE,
+        ""ExpiresAt"" TIMESTAMPTZ NOT NULL,
+        ""CreatedAt"" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ""RevokedAt"" TIMESTAMPTZ,
+        ""ReplacedByToken"" VARCHAR(255)
+    );
+
+    CREATE INDEX IF NOT EXISTS ix_refresh_tokens_token ON public.refresh_tokens(""Token"");
+    CREATE INDEX IF NOT EXISTS ix_refresh_tokens_user_id ON public.refresh_tokens(""UserId"");
+    CREATE INDEX IF NOT EXISTS ix_refresh_tokens_expires_at ON public.refresh_tokens(""ExpiresAt"");
 END $$;
 ";
             await db.Database.ExecuteSqlRawAsync(ddlSql);
@@ -339,6 +369,32 @@ END $$;
                 );
                 await db.SaveChangesAsync();
                 logger.LogInformation("Khởi tạo PhotoFilters mặc định thành công.");
+            }
+
+            // Seed Default Admin User
+            var existingAdmin = await db.Users.FirstOrDefaultAsync(u => u.Username == "admin");
+            var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<string>();
+            if (existingAdmin == null)
+            {
+                logger.LogInformation("Khởi tạo tài khoản quản trị mặc định: admin / admin...");
+                db.Users.Add(new User
+                {
+                    Username = "admin",
+                    PasswordHash = hasher.HashPassword("admin", "admin"),
+                    FullName = "Quản trị viên",
+                    Role = "Admin",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                });
+                await db.SaveChangesAsync();
+                logger.LogInformation("✅ Khởi tạo tài khoản admin thành công.");
+            }
+            else
+            {
+                // Ensure password is admin
+                existingAdmin.PasswordHash = hasher.HashPassword("admin", "admin");
+                existingAdmin.IsActive = true;
+                await db.SaveChangesAsync();
             }
         }
         catch (Exception ex)

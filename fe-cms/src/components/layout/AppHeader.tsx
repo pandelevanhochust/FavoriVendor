@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Tag, Space, Dropdown, Modal, Input, message } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   ApiOutlined,
-  SettingOutlined,
   UserOutlined,
+  LogoutOutlined,
   CheckCircleOutlined,
 } from '@ant-design/icons';
-import { getBaseApiUrl, setBaseApiUrl, getApiKey, setApiKey } from '../../api/client';
+import { getBaseApiUrl, setBaseApiUrl } from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 
 interface AppHeaderProps {
   collapsed: boolean;
@@ -16,23 +18,43 @@ interface AppHeaderProps {
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onToggleCollapse }) => {
+  const { user, logout } = useAuth();
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [currentUrl, setCurrentUrl] = useState('');
-  const [currentKey, setCurrentKey] = useState('');
 
   useEffect(() => {
     setCurrentUrl(getBaseApiUrl());
-    setCurrentKey(getApiKey());
   }, []);
 
   const handleSaveConfig = () => {
     setBaseApiUrl(currentUrl);
-    setApiKey(currentKey);
     message.success('Đã lưu cấu hình kết nối Backend thành công!');
     setIsConfigModalOpen(false);
-    // Reload lại dữ liệu
     window.location.reload();
   };
+
+  const userMenuItems: MenuProps['items'] = [
+    {
+      key: 'user-info',
+      label: (
+        <div style={{ padding: '4px 0' }}>
+          <div style={{ fontWeight: 600 }}>{user?.fullName || 'Quản trị viên'}</div>
+          <div style={{ fontSize: 12, color: '#64748b' }}>@{user?.username || 'admin'} ({user?.role || 'Admin'})</div>
+        </div>
+      ),
+      disabled: true,
+    },
+    {
+      type: 'divider',
+    },
+    {
+      key: 'logout',
+      danger: true,
+      icon: <LogoutOutlined />,
+      label: 'Đăng xuất',
+      onClick: logout,
+    },
+  ];
 
   return (
     <div
@@ -54,7 +76,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onToggleCollaps
           style={{ fontSize: 16, width: 40, height: 40 }}
         />
         <Tag color="magenta" icon={<CheckCircleOutlined />}>
-          HiHiBooth Studio Active
+          Favori PhotoBooth Active
         </Tag>
       </Space>
 
@@ -68,38 +90,44 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onToggleCollaps
           Kết nối Backend
         </Button>
 
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '6px 12px',
-            background: '#f8fafc',
-            borderRadius: 20,
-            border: '1px solid #e2e8f0',
-          }}
-        >
+        <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" arrow>
           <div
             style={{
-              width: 28,
-              height: 28,
-              borderRadius: '50%',
-              background: '#f86fa5',
-              color: '#fff',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 600,
-              fontSize: 12,
+              gap: 8,
+              padding: '6px 14px',
+              background: '#f8fafc',
+              borderRadius: 20,
+              border: '1px solid #e2e8f0',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
             }}
           >
-            A
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                background: '#f86fa5',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 600,
+                fontSize: 12,
+              }}
+            >
+              {user?.username ? user.username.charAt(0).toUpperCase() : 'A'}
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>
+              {user?.username || 'admin'}
+            </span>
           </div>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>Admin Quản Lý</span>
-        </div>
+        </Dropdown>
       </Space>
 
-      {/* Modal Cấu hình Backend */}
+      {/* Modal Cấu hình Backend URL */}
       <Modal
         title="Cấu hình Kết nối API Backend .NET"
         open={isConfigModalOpen}
@@ -115,22 +143,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onToggleCollaps
           <Input
             value={currentUrl}
             onChange={(e) => setCurrentUrl(e.target.value)}
-            placeholder="https://favorivendor.onrender.com hoặc http://localhost:5000"
+            placeholder="http://localhost:5000 hoặc https://favorivendor.onrender.com"
           />
           <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-            Mặc định: Render Production hoặc localhost .NET server
+            Mặc định: http://localhost:5000
           </div>
-        </div>
-
-        <div style={{ marginTop: 16 }}>
-          <label style={{ display: 'block', marginBottom: 6, fontWeight: 600 }}>
-            Kiosk API Key (Header X-Api-Key):
-          </label>
-          <Input.Password
-            value={currentKey}
-            onChange={(e) => setCurrentKey(e.target.value)}
-            placeholder="Nhập API Key nếu có thay đổi"
-          />
         </div>
       </Modal>
     </div>

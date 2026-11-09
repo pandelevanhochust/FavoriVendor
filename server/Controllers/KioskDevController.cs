@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using VietQrKiosk.Server.Config;
@@ -11,7 +12,7 @@ namespace VietQrKiosk.Server.Controllers;
 [ApiController]
 [Route("vendor/dev")]
 [Tags("Dev")]
-[KioskApiKey]
+[Authorize]
 public class KioskDevController : ControllerBase
 {
     private readonly IOrderRepository _orderRepo;

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using VietQrKiosk.Server.Entities;
 using VietQrKiosk.Server.Infra.Repositories;
@@ -48,6 +49,7 @@ public class CategoriesController : ControllerBase
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Created PhotoCategoryDto.</returns>
     [HttpPost]
+    [Authorize]
     public async Task<ActionResult<PhotoCategoryDto>> Create([FromBody] CreateOrUpdateCategoryRequest request, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
@@ -92,6 +94,7 @@ public class CategoriesController : ControllerBase
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Updated PhotoCategoryDto.</returns>
     [HttpPut("{id:int}")]
+    [Authorize]
     public async Task<ActionResult<PhotoCategoryDto>> Update(int id, [FromBody] CreateOrUpdateCategoryRequest request, CancellationToken ct = default)
     {
         var cat = await _layoutRepo.GetCategoryByIdAsync(id, ct);
@@ -123,6 +126,7 @@ public class CategoriesController : ControllerBase
     /// <param name="id" example="1">Unique integer identifier of the category.</param>
     /// <param name="ct">Cancellation token.</param>
     [HttpDelete("{id:int}")]
+    [Authorize]
     public async Task<IActionResult> Delete(int id, CancellationToken ct = default)
     {
         var success = await _layoutRepo.DeleteCategoryAsync(id, ct);

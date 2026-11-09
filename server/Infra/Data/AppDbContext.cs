@@ -16,6 +16,8 @@ public class AppDbContext : DbContext
     public DbSet<PhotoCategory> PhotoCategories => Set<PhotoCategory>();
     public DbSet<PhotoFrame> PhotoFrames => Set<PhotoFrame>();
     public DbSet<PhotoFilter> PhotoFilters => Set<PhotoFilter>();
+    public DbSet<User> Users => Set<User>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -156,6 +158,42 @@ public class AppDbContext : DbContext
             b.HasIndex(f => f.Category);
             b.HasIndex(f => f.IsActive);
             b.HasIndex(f => f.DisplayOrder);
+        });
+
+        // User Configuration
+        modelBuilder.Entity<User>(b =>
+        {
+            b.ToTable("users");
+            b.HasKey(u => u.Id);
+            b.Property(u => u.Id).ValueGeneratedOnAdd();
+            b.Property(u => u.Username).HasMaxLength(50).IsRequired();
+            b.Property(u => u.Email).HasMaxLength(150);
+            b.Property(u => u.PasswordHash).HasMaxLength(255).IsRequired();
+            b.Property(u => u.FullName).HasMaxLength(100).IsRequired();
+            b.Property(u => u.Role).HasMaxLength(20).HasDefaultValue("Admin");
+
+            b.HasIndex(u => u.Username).IsUnique();
+            b.HasIndex(u => u.Role);
+            b.HasIndex(u => u.IsActive);
+        });
+
+        // RefreshToken Configuration
+        modelBuilder.Entity<RefreshToken>(b =>
+        {
+            b.ToTable("refresh_tokens");
+            b.HasKey(r => r.Id);
+            b.Property(r => r.Id).ValueGeneratedOnAdd();
+            b.Property(r => r.Token).HasMaxLength(255).IsRequired();
+            b.Property(r => r.ReplacedByToken).HasMaxLength(255);
+
+            b.HasIndex(r => r.Token).IsUnique();
+            b.HasIndex(r => r.UserId);
+            b.HasIndex(r => r.ExpiresAt);
+
+            b.HasOne(r => r.User)
+             .WithMany()
+             .HasForeignKey(r => r.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

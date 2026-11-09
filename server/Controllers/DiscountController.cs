@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using VietQrKiosk.Server.Models;
 using VietQrKiosk.Server.Services.Interfaces;
@@ -7,7 +8,7 @@ namespace VietQrKiosk.Server.Controllers;
 [ApiController]
 [Route("vendor/discounts")]
 [Tags("Discounts")]
-[KioskApiKey]
+[Authorize]
 public class DiscountController : ControllerBase
 {
     private readonly IDiscountService _discountService;

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using VietQrKiosk.Server.Entities;
@@ -75,6 +76,7 @@ public class FramesController : ControllerBase
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Created PhotoFrameDto.</returns>
     [HttpPost]
+    [Authorize]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<PhotoFrameDto>> Create(
         [FromForm] IFormFile file,
@@ -151,6 +153,7 @@ public class FramesController : ControllerBase
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Updated PhotoFrameDto.</returns>
     [HttpPut("{id:int}")]
+    [Authorize]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<PhotoFrameDto>> Update(
         int id,
@@ -213,6 +216,7 @@ public class FramesController : ControllerBase
     /// <param name="id" example="1">Unique integer identifier of the photo frame.</param>
     /// <param name="ct">Cancellation token.</param>
     [HttpDelete("{id:int}")]
+    [Authorize]
     public async Task<IActionResult> Delete(int id, CancellationToken ct = default)
     {
         var frame = await _frameRepo.GetByIdAsync(id, ct);

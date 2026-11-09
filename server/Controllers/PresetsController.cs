@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using VietQrKiosk.Server.Entities;
 using VietQrKiosk.Server.Infra.Repositories;
@@ -72,6 +73,7 @@ public class PresetsController : ControllerBase
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Created PhotoFilterDto.</returns>
     [HttpPost]
+    [Authorize]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<PhotoFilterDto>> Create(
         [FromForm] string code,
@@ -163,6 +165,7 @@ public class PresetsController : ControllerBase
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Updated PhotoFilterDto.</returns>
     [HttpPut("{id:int}")]
+    [Authorize]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<PhotoFilterDto>> Update(
         int id,
@@ -225,6 +228,7 @@ public class PresetsController : ControllerBase
     /// <param name="id" example="1">Unique integer identifier of the filter.</param>
     /// <param name="ct">Cancellation token.</param>
     [HttpDelete("{id:int}")]
+    [Authorize]
     public async Task<IActionResult> Delete(int id, CancellationToken ct = default)
     {
         var filter = await _filterRepo.GetByIdAsync(id, ct);

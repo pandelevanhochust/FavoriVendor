@@ -116,6 +116,8 @@ if (usePostgres)
     builder.Services.AddScoped<IPhotoLayoutRepository, PhotoLayoutRepository>();
     builder.Services.AddScoped<IPhotoFrameRepository, PhotoFrameRepository>();
     builder.Services.AddScoped<IPhotoFilterRepository, PhotoFilterRepository>();
+    builder.Services.AddScoped<IUserRepository, UserRepository>();
+    builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 }
 else
 {
@@ -126,6 +128,8 @@ else
     builder.Services.AddSingleton<IPhotoLayoutRepository, InMemoryPhotoLayoutRepository>();
     builder.Services.AddSingleton<IPhotoFrameRepository, InMemoryPhotoFrameRepository>();
     builder.Services.AddSingleton<IPhotoFilterRepository, InMemoryPhotoFilterRepository>();
+    builder.Services.AddSingleton<IUserRepository, InMemoryUserRepository>();
+    builder.Services.AddSingleton<IRefreshTokenRepository, InMemoryRefreshTokenRepository>();
 }
 
 builder.Services.AddHttpClient("vietqr", c =>
@@ -140,6 +144,7 @@ builder.Services.AddSingleton<IOrderNotifier, OrderNotifier>();
 builder.Services.AddScoped<IDiscountService, DiscountService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IPaymentProcessor, PaymentProcessor>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddHostedService<OrderExpiryService>();
 
 // ------------------------------------------------------------------ Presentation: Controllers & Serialization
@@ -170,12 +175,13 @@ builder.Services.AddOpenApi(options =>
         document.Components ??= new();
         if (document.Components.SecuritySchemes != null)
         {
-            document.Components.SecuritySchemes["KioskApiKey"] = new Microsoft.OpenApi.OpenApiSecurityScheme
+            document.Components.SecuritySchemes["Bearer"] = new Microsoft.OpenApi.OpenApiSecurityScheme
             {
-                Type = Microsoft.OpenApi.SecuritySchemeType.ApiKey,
-                Name = "X-Kiosk-Key",
+                Type = Microsoft.OpenApi.SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
                 In = Microsoft.OpenApi.ParameterLocation.Header,
-                Description = "Vendor API Key required for vendor and kiosk endpoints."
+                Description = "JWT Access Token from /api/auth/login. Example: Bearer {token}"
             };
         }
 
@@ -196,17 +202,36 @@ builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.SetIsOriginAllowed(origin => true)
               .AllowAnyMethod()
               .AllowAnyHeader()
+              .AllowCredentials()
               .WithExposedHeaders("X-Total-Count", "X-Page", "X-Limit");
     });
 });
 
-// ------------------------------------------------------------------ Authentication (VietQR API Callback)
-// JWT chỉ dùng cho chiều VietQR -> server (Transaction Sync). Không dùng MQTT.
+// ------------------------------------------------------------------ Authentication (JWT Bearer & VietQR API Callback)
+var jwtSecret = builder.Configuration["Jwt:Secret"] 
+                ?? callbackCfg.JwtSecret;
+
 builder.Services
-    .AddAuthentication()
+    .AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, o =>
+    {
+        o.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromSeconds(30)
+        };
+    })
     .AddJwtBearer("VietQrCallback", o =>
     {
         o.TokenValidationParameters = new TokenValidationParameters

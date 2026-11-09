@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using VietQrKiosk.Server.Entities;
@@ -55,6 +56,7 @@ public class LayoutsController : ControllerBase
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Created PhotoLayoutDto.</returns>
     [HttpPost]
+    [Authorize]
     public async Task<ActionResult<PhotoLayoutDto>> Create([FromBody] CreateOrUpdateLayoutRequest request, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.Id) || string.IsNullOrWhiteSpace(request.Name))

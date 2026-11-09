@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using VietQrKiosk.Server.Entities;
@@ -16,7 +17,7 @@ namespace VietQrKiosk.Server.Controllers;
 
 [Tags("Orders")]
 
-[KioskApiKey]
+[Authorize]
 
 public class VendorOrdersController : ControllerBase
 

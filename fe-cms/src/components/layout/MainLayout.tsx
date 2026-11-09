@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout, ConfigProvider } from 'antd';
+import { useRouter } from 'next/router';
 import { AppSidebar } from './AppSidebar';
 import { AppHeader } from './AppHeader';
+import { useAuth } from '../../context/AuthContext';
+import { LoadingCircle } from '../common/LoadingCircle';
 
 const { Sider, Content } = Layout;
 
@@ -10,7 +13,44 @@ interface MainLayoutProps {
 }
 
 export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
+  const router = useRouter();
+  const { isAuthenticated, isLoading } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+
+  const isLoginPage = router.pathname === '/login';
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated && !isLoginPage) {
+      router.replace('/login');
+    }
+  }, [isLoading, isAuthenticated, isLoginPage, router]);
+
+  // If on login page, render children directly without dashboard shell
+  if (isLoginPage) {
+    return <>{children}</>;
+  }
+
+  // Loading state while checking authentication
+  if (isLoading) {
+    return (
+      <LoadingCircle
+        fullScreen
+        title="Favori PhotoBooth"
+        subtitle="Đang tải dữ liệu phiên làm việc..."
+      />
+    );
+  }
+
+  // If not authenticated, do not show dashboard shell while redirecting
+  if (!isAuthenticated) {
+    return (
+      <LoadingCircle
+        fullScreen
+        title="Đang chuyển hướng..."
+        subtitle="Chuyển đến màn hình đăng nhập..."
+      />
+    );
+  }
 
   return (
     <ConfigProvider
@@ -25,7 +65,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       }}
     >
       <Layout style={{ minHeight: '100vh' }}>
-        {/* Sider Sidebar */}
         <Sider
           trigger={null}
           collapsible
@@ -44,7 +83,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           <AppSidebar collapsed={collapsed} />
         </Sider>
 
-        {/* Main Content Area */}
         <Layout>
           <AppHeader
             collapsed={collapsed}

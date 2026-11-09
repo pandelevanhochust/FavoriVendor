@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using VietQrKiosk.Server.Infra.Repositories;
@@ -16,7 +17,7 @@ namespace VietQrKiosk.Server.Controllers;
 
 [Tags("Transactions")]
 
-[KioskApiKey]
+[Authorize]
 
 public class TransactionsController : ControllerBase
 
