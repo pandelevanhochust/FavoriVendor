@@ -18,30 +18,30 @@ export interface ParsedTemplate {
 }
 
 /**
- * Phân tích file template.xml từ kho D:\WORK\Frames
+ * Phân tích file template.xml từ kho D:\WORK\Frames hoặc xuất từ Tool_Create_Frame
  */
 export function parseTemplateXml(xmlText: string): ParsedTemplate {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlText, 'text/xml');
-  const templateEl = doc.querySelector('Template');
+  const templateEl = doc.getElementsByTagName('Template')[0] || doc.querySelector('Template');
 
   if (!templateEl) {
     throw new Error('File XML không đúng định dạng photobooth template.');
   }
 
-  const name = templateEl.getAttribute('Name') || 'Untitled Frame';
-  const layout = templateEl.getAttribute('Layout') || '4x6';
-  const width = parseInt(templateEl.getAttribute('Width') || '2400', 10);
-  const height = parseInt(templateEl.getAttribute('Height') || '3600', 10);
-  const print2PerPage = templateEl.getAttribute('print_2_per_page') === 'True';
+  const name = templateEl.getAttribute('Name') || templateEl.getAttribute('name') || 'Untitled Frame';
+  const layout = templateEl.getAttribute('Layout') || templateEl.getAttribute('layout') || '4x6';
+  const width = parseInt(templateEl.getAttribute('Width') || templateEl.getAttribute('width') || '2400', 10);
+  const height = parseInt(templateEl.getAttribute('Height') || templateEl.getAttribute('height') || '3600', 10);
+  const print2PerPage = (templateEl.getAttribute('print_2_per_page') || '').toLowerCase() === 'true';
 
   const holes: DetectedHole[] = [];
-  const photoEls = doc.querySelectorAll('Elements > Photo');
+  const photoEls = Array.from(doc.getElementsByTagName('Photo')).concat(Array.from(doc.getElementsByTagName('photo')));
   photoEls.forEach((p) => {
-    const w = parseInt(p.getAttribute('Width') || '0', 10);
-    const h = parseInt(p.getAttribute('Height') || '0', 10);
-    const top = parseInt(p.getAttribute('Top') || '0', 10);
-    const left = parseInt(p.getAttribute('Left') || '0', 10);
+    const w = parseInt(p.getAttribute('Width') || p.getAttribute('width') || '0', 10);
+    const h = parseInt(p.getAttribute('Height') || p.getAttribute('height') || '0', 10);
+    const top = parseInt(p.getAttribute('Top') || p.getAttribute('top') || '0', 10);
+    const left = parseInt(p.getAttribute('Left') || p.getAttribute('left') || '0', 10);
 
     if (w > 0 && h > 0) {
       holes.push({
@@ -55,18 +55,20 @@ export function parseTemplateXml(xmlText: string): ParsedTemplate {
   });
 
   // Tìm ảnh viền
-  const imageEl = doc.querySelector('Elements > Image');
-  const imagePath = imageEl?.getAttribute('ImagePath') || undefined;
+  const imageEls = Array.from(doc.getElementsByTagName('Image')).concat(Array.from(doc.getElementsByTagName('image')));
+  const frameImgEl = imageEls.find(i => (i.getAttribute('Name') || '').toLowerCase() === 'frame') || imageEls[0];
+  const imagePath = frameImgEl?.getAttribute('ImagePath') || frameImgEl?.getAttribute('imagepath') || undefined;
 
   // Tìm vị trí QR Code
-  const qrEl = doc.querySelector('Elements > QrCode');
+  const qrEls = Array.from(doc.getElementsByTagName('QrCode')).concat(Array.from(doc.getElementsByTagName('qrcode')));
   let qrCode: { x: number; y: number; w: number; h: number } | undefined = undefined;
-  if (qrEl) {
+  if (qrEls.length > 0) {
+    const qrEl = qrEls[0];
     qrCode = {
-      x: parseInt(qrEl.getAttribute('Left') || '0', 10),
-      y: parseInt(qrEl.getAttribute('Top') || '0', 10),
-      w: parseInt(qrEl.getAttribute('Width') || '200', 10),
-      h: parseInt(qrEl.getAttribute('Height') || '200', 10),
+      x: parseInt(qrEl.getAttribute('Left') || qrEl.getAttribute('left') || '0', 10),
+      y: parseInt(qrEl.getAttribute('Top') || qrEl.getAttribute('top') || '0', 10),
+      w: parseInt(qrEl.getAttribute('Width') || qrEl.getAttribute('width') || '200', 10),
+      h: parseInt(qrEl.getAttribute('Height') || qrEl.getAttribute('height') || '200', 10),
     };
   }
 
@@ -80,6 +82,73 @@ export function parseTemplateXml(xmlText: string): ParsedTemplate {
     imagePath,
     print2PerPage,
   };
+}
+
+/**
+ * Sinh tọa độ holes chuẩn hóa theo các khổ photobooth phổ biến
+ */
+export function generatePresetHoles(layoutId: string, width = 2400, height = 3600): DetectedHole[] {
+  const normLayout = layoutId.toLowerCase();
+  if (normLayout === '1x4' || normLayout === '2x6') {
+    // 4 ô dải film dọc
+    const holes: DetectedHole[] = [];
+    const itemH = Math.round((height - 500) / 4);
+    const itemW = Math.round(width * 0.72);
+    const left = Math.round((width - itemW) / 2);
+    for (let i = 0; i < 4; i++) {
+      holes.push({
+        x: left,
+        y: 200 + i * (itemH + 40),
+        w: itemW,
+        h: itemH - 40,
+        rotation: 0,
+      });
+    }
+    return holes;
+  }
+
+  if (normLayout === '2x2') {
+    // Lưới 4 ô vuông
+    const w = 1100;
+    const h = 1250;
+    return [
+      { x: 97, y: 343, w, h, rotation: 0 },
+      { x: 1206, y: 343, w, h, rotation: 0 },
+      { x: 97, y: 1617, w, h, rotation: 0 },
+      { x: 1206, y: 1617, w, h, rotation: 0 },
+    ];
+  }
+
+  if (normLayout === '2x3') {
+    // Postcard 6 ô ảnh
+    const w = 1088;
+    const h = 880;
+    return [
+      { x: 106, y: 421, w, h, rotation: 0 },
+      { x: 1204, y: 421, w, h, rotation: 0 },
+      { x: 106, y: 1314, w, h, rotation: 0 },
+      { x: 1204, y: 1314, w, h, rotation: 0 },
+      { x: 106, y: 2208, w, h, rotation: 0 },
+      { x: 1204, y: 2208, w, h, rotation: 0 },
+    ];
+  }
+
+  // Mặc định 4 ô
+  const count = 4;
+  const holes: DetectedHole[] = [];
+  const itemHeight = Math.floor((height - 400) / count);
+  const itemWidth = Math.floor(width * 0.75);
+  const x = Math.floor((width - itemWidth) / 2);
+  for (let i = 0; i < count; i++) {
+    holes.push({
+      x,
+      y: 160 + i * itemHeight,
+      w: itemWidth,
+      h: itemHeight - 60,
+      rotation: 0,
+    });
+  }
+  return holes;
 }
 
 /**

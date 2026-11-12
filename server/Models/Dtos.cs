@@ -158,7 +158,12 @@ public record RevenueSummaryDto(
 
 public record PricingTierDto(int Quantity, long Price);
 
-public record HoleRectDto(int X, int Y, int W, int H, double? Rotation = 0);
+public record HoleRectDto(
+    [property: JsonPropertyName("x")] int X,
+    [property: JsonPropertyName("y")] int Y,
+    [property: JsonPropertyName("w")] int W,
+    [property: JsonPropertyName("h")] int H,
+    [property: JsonPropertyName("rotation")] double? Rotation = 0);
 
 public record PhotoLayoutDto(
     string Id,

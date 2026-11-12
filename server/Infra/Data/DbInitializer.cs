@@ -371,6 +371,81 @@ END $$;
                 logger.LogInformation("Khởi tạo PhotoFilters mặc định thành công.");
             }
 
+            // Seed Photo Frames from D:\WORK\Frames
+            if (!await db.PhotoFrames.AnyAsync())
+            {
+                logger.LogInformation("Đang khởi tạo các PhotoFrames mặc định...");
+                db.PhotoFrames.AddRange(
+                    new PhotoFrame
+                    {
+                        Name = "Vintage Film Strip 4 Ô (1x4)",
+                        LayoutId = "1x4",
+                        CategoryId = 4,
+                        FrameUrl = "https://pub-bc5a451086074267b70e4328a218b0c9.r2.dev/frames/20261110_145330_5f8054b7eed74fa5b0c34e6031a7bd24.png",
+                        ThumbnailUrl = "https://pub-bc5a451086074267b70e4328a218b0c9.r2.dev/frames/20261110_145332_8e4595916ec243a0881e70debe5d3b53.png",
+                        HolesJson = "[{\"x\":545,\"y\":173,\"w\":1310,\"h\":833,\"rotation\":0},{\"x\":545,\"y\":1006,\"w\":1310,\"h\":794,\"rotation\":0},{\"x\":545,\"y\":1800,\"w\":1310,\"h\":797,\"rotation\":0},{\"x\":545,\"y\":2597,\"w\":1310,\"h\":830,\"rotation\":0}]",
+                        DisplayOrder = 1,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new PhotoFrame
+                    {
+                        Name = "Summer Vibes Lưới 4 Ô (2x2)",
+                        LayoutId = "2x2",
+                        CategoryId = 1,
+                        FrameUrl = "https://pub-bc5a451086074267b70e4328a218b0c9.r2.dev/frames/20261110_145333_adb887c3bc79423abfe8b8fd492a778a.png",
+                        ThumbnailUrl = "https://pub-bc5a451086074267b70e4328a218b0c9.r2.dev/frames/20261110_145334_9e190ae62582478483c431618c56ff29.png",
+                        HolesJson = "[{\"x\":97,\"y\":343,\"w\":1103,\"h\":1274,\"rotation\":0},{\"x\":1206,\"y\":343,\"w\":1101,\"h\":1274,\"rotation\":0},{\"x\":97,\"y\":1617,\"w\":1103,\"h\":1274,\"rotation\":0},{\"x\":1206,\"y\":1617,\"w\":1101,\"h\":1274,\"rotation\":0}]",
+                        DisplayOrder = 2,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new PhotoFrame
+                    {
+                        Name = "Summer Pastel 6 Ô (2x3)",
+                        LayoutId = "2x3",
+                        CategoryId = 1,
+                        FrameUrl = "https://pub-bc5a451086074267b70e4328a218b0c9.r2.dev/frames/20261110_145335_d98a8979cee64db5aa88733b8ef4f415.png",
+                        ThumbnailUrl = "https://pub-bc5a451086074267b70e4328a218b0c9.r2.dev/frames/20261110_145335_1654b14c10404898893ed260471f2268.png",
+                        HolesJson = "[{\"x\":106,\"y\":421,\"w\":1088,\"h\":880,\"rotation\":0},{\"x\":1204,\"y\":421,\"w\":1088,\"h\":880,\"rotation\":0},{\"x\":106,\"y\":1314,\"w\":1088,\"h\":880,\"rotation\":0},{\"x\":1204,\"y\":1314,\"w\":1088,\"h\":880,\"rotation\":0},{\"x\":106,\"y\":2208,\"w\":1088,\"h\":880,\"rotation\":0},{\"x\":1204,\"y\":2208,\"w\":1088,\"h\":880,\"rotation\":0}]",
+                        DisplayOrder = 3,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new PhotoFrame
+                    {
+                        Name = "Classic Black 4 Ô (2x2)",
+                        LayoutId = "2x2",
+                        CategoryId = 1,
+                        FrameUrl = "https://pub-bc5a451086074267b70e4328a218b0c9.r2.dev/frames/20261110_145336_9251b0cb27054706961d16abcd8ec7a6.png",
+                        ThumbnailUrl = "https://pub-bc5a451086074267b70e4328a218b0c9.r2.dev/frames/20261110_145337_b9a38a74c6564b81b72b264e80695a52.png",
+                        HolesJson = "[{\"x\":142,\"y\":792,\"w\":1016,\"h\":1186,\"rotation\":0},{\"x\":1242,\"y\":792,\"w\":1016,\"h\":1186,\"rotation\":0},{\"x\":142,\"y\":2057,\"w\":1016,\"h\":1186,\"rotation\":0},{\"x\":1242,\"y\":2057,\"w\":1016,\"h\":1186,\"rotation\":0}]",
+                        DisplayOrder = 4,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new PhotoFrame
+                    {
+                        Name = "Classic Grid 6 Ô (2x3)",
+                        LayoutId = "2x3",
+                        CategoryId = 1,
+                        FrameUrl = "https://pub-bc5a451086074267b70e4328a218b0c9.r2.dev/frames/20261110_145337_4bf1448a22e64befb10790b6f65b0d4f.png",
+                        ThumbnailUrl = "https://pub-bc5a451086074267b70e4328a218b0c9.r2.dev/frames/20261110_145338_31b0f886dd204c4d81cce153676cb05d.png",
+                        HolesJson = "[{\"x\":142,\"y\":272,\"w\":1021,\"h\":811,\"rotation\":0},{\"x\":1237,\"y\":272,\"w\":1021,\"h\":811,\"rotation\":0},{\"x\":142,\"y\":1167,\"w\":1021,\"h\":811,\"rotation\":0},{\"x\":1237,\"y\":1167,\"w\":1021,\"h\":811,\"rotation\":0},{\"x\":142,\"y\":2062,\"w\":1021,\"h\":811,\"rotation\":0},{\"x\":1237,\"y\":2062,\"w\":1021,\"h\":811,\"rotation\":0}]",
+                        DisplayOrder = 5,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    }
+                );
+                await db.SaveChangesAsync();
+                logger.LogInformation("Khởi tạo PhotoFrames mặc định từ kho D:\\WORK\\Frames thành công.");
+            }
+
             // Seed Default Admin User
             var existingAdmin = await db.Users.FirstOrDefaultAsync(u => u.Username == "admin");
             var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<string>();

@@ -31,6 +31,7 @@ public class CloudflareR2StorageService : IStorageService
             var config = new AmazonS3Config
             {
                 ServiceURL = $"https://{r2.AccountId}.r2.cloudflarestorage.com",
+                AuthenticationRegion = "auto",
                 ForcePathStyle = true
             };
             _s3Client = new AmazonS3Client(credentials, config);
