@@ -185,16 +185,11 @@ builder.Services.AddOpenApi(options =>
             };
         }
 
-        if (document.Servers != null)
+        // Đặt Server URL thành relative "/" để Scalar/OpenAPI luôn gọi đúng host, port và protocol (HTTP/HTTPS) của client hiện tại
+        document.Servers = new List<Microsoft.OpenApi.OpenApiServer>
         {
-            foreach (var server in document.Servers)
-            {
-                if (server.Url != null && server.Url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !server.Url.Contains("localhost"))
-                {
-                    server.Url = "https://" + server.Url.Substring("http://".Length);
-                }
-            }
-        }
+            new() { Url = "/" }
+        };
         return Task.CompletedTask;
     });
 });
@@ -266,6 +261,7 @@ forwardedHeadersOptions.KnownIPNetworks.Clear();
 forwardedHeadersOptions.KnownProxies.Clear();
 app.UseForwardedHeaders(forwardedHeadersOptions);
 
+app.UseRouting();
 app.UseCors();
 
 // Phục vụ static files cho Local upload directory
