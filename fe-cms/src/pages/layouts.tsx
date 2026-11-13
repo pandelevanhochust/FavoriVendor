@@ -1,603 +1,863 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Card,
-  Table,
-  Tag,
   Button,
-  Typography,
-  Space,
-  Modal,
+  Col,
+  Empty,
   Form,
   Input,
   InputNumber,
-  Switch,
-  message,
+  Modal,
   Popconfirm,
-  Spin,
-  Divider,
   Row,
-  Col,
-  Statistic,
-  Badge,
+  Space,
+  Spin,
+  Switch,
+  Tag,
+  Upload,
+  message,
 } from 'antd';
 import {
-  PlusOutlined,
-  EditOutlined,
-  DeleteOutlined,
-  ReloadOutlined,
-  MinusCircleOutlined,
   AppstoreOutlined,
-  CheckCircleOutlined,
+  DeleteOutlined,
+  MinusCircleOutlined,
   PictureOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SaveOutlined,
   ScissorOutlined,
-  CameraOutlined,
-  PrinterOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
 import {
+  LayoutPayload,
   PhotoLayout,
   PricingTier,
-  getLayouts,
   createLayout,
-  updateLayout,
   deleteLayout,
+  getLayouts,
+  updateLayout,
+  uploadLayoutPreview,
 } from '../api/photoLayoutApi';
+import {
+  LAYOUT_PREVIEW_PRESETS,
+  LayoutPreview,
+  PRESET_PREFIX,
+  PresetGraphic,
+} from '../components/layouts/LayoutPreviewGraphic';
 
-const { Title, Text } = Typography;
+interface LayoutFormValues {
+  id: string;
+  name: string;
+  slug?: string;
+  description?: string;
+  widthPx: number;
+  heightPx: number;
+  holeCount: number;
+  captureCount: number;
+  isSplit: boolean;
+  useHolesAutoCapture: boolean;
+  isActive: boolean;
+  displayOrder: number;
+  pricingTiers: PricingTier[];
+}
 
-// Miniature SVG Preview for Layout aspect ratio and visual hole distribution
-const LayoutVisualBadge: React.FC<{ layoutId: string; holeCount: number }> = ({ layoutId, holeCount }) => {
-  const norm = layoutId.toLowerCase();
+const NEW_KEY = '__new__';
+const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 
-  if (norm === '1x4' || norm === '2x6') {
-    return (
-      <div
-        style={{
-          width: 32,
-          height: 52,
-          background: '#f1f5f9',
-          border: '1.5px solid #cbd5e1',
-          borderRadius: 4,
-          padding: 2,
-          display: 'flex',
-          gap: 2,
-        }}
-        title="Dải Film 2 Cột Đôi (2 Cut Strips)"
-      >
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} style={{ flex: 1, background: '#f86fa5', borderRadius: 1 }} />
-          ))}
-        </div>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} style={{ flex: 1, background: '#f86fa5', borderRadius: 1 }} />
-          ))}
-        </div>
-      </div>
-    );
-  }
+const DEFAULT_TIERS: PricingTier[] = [
+  { quantity: 2, price: 70000 },
+  { quantity: 4, price: 100000 },
+  { quantity: 6, price: 130000 },
+];
 
-  if (norm === '2x2') {
-    return (
-      <div
-        style={{
-          width: 44,
-          height: 44,
-          background: '#f1f5f9',
-          border: '1.5px solid #cbd5e1',
-          borderRadius: 4,
-          padding: 3,
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: 3,
-        }}
-        title="Lưới 4 Ô Vuông (2x2 Grid)"
-      >
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} style={{ background: '#f86fa5', borderRadius: 2 }} />
-        ))}
-      </div>
-    );
-  }
+const formatVnd = (amount: number) =>
+  new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 
-  if (norm === '2x3') {
-    return (
-      <div
-        style={{
-          width: 38,
-          height: 52,
-          background: '#f1f5f9',
-          border: '1.5px solid #cbd5e1',
-          borderRadius: 4,
-          padding: 3,
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: 2,
-        }}
-        title="Lưới 6 Ô Postcard (2x3 Postcard)"
-      >
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <div key={i} style={{ background: '#f86fa5', borderRadius: 1.5 }} />
-        ))}
-      </div>
-    );
-  }
+const errorMessage = (err: any, fallback: string) =>
+  err?.response?.data?.message || err?.response?.data?.error || fallback;
 
-  // 6x4 or standard landscape
-  return (
-    <div
-      style={{
-        width: 52,
-        height: 38,
-        background: '#f1f5f9',
-        border: '1.5px solid #cbd5e1',
-        borderRadius: 4,
-        padding: 3,
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: 2,
-      }}
-      title="Khung Ngang (6x4 Landscape)"
-    >
-      {[1, 2, 3, 4, 5, 6].slice(0, holeCount || 4).map((i) => (
-        <div key={i} style={{ background: '#f86fa5', borderRadius: 1.5 }} />
-      ))}
-    </div>
-  );
-};
+function toFormValues(layout: PhotoLayout): LayoutFormValues {
+  return {
+    id: layout.id,
+    name: layout.name,
+    slug: layout.slug,
+    description: layout.description,
+    widthPx: layout.widthPx,
+    heightPx: layout.heightPx,
+    holeCount: layout.holeCount,
+    captureCount: layout.captureCount && layout.captureCount > 0 ? layout.captureCount : layout.holeCount,
+    isSplit: !!layout.isSplit,
+    useHolesAutoCapture: !!layout.useHolesAutoCapture,
+    isActive: layout.isActive,
+    displayOrder: layout.displayOrder,
+    pricingTiers: layout.pricingTiers?.length ? layout.pricingTiers : [],
+  };
+}
+
+/** Payload đầy đủ từ một layout có sẵn (dùng cho bật/tắt nhanh); không đụng tới previewUrl. */
+function toPayload(layout: PhotoLayout, overrides: Partial<LayoutPayload> = {}): LayoutPayload {
+  return {
+    ...toFormValues(layout),
+    ...overrides,
+  };
+}
 
 export default function LayoutsPage() {
   const [layouts, setLayouts] = useState<PhotoLayout[]>([]);
   const [loading, setLoading] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingLayout, setEditingLayout] = useState<PhotoLayout | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [form] = Form.useForm();
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  const loadData = async () => {
+  // Preview: giá trị đã/sẽ lưu ("preset:<key>", URL, hoặc '' = tự động) + file tuỳ chỉnh chờ tải lên khi lưu
+  const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [pendingPreview, setPendingPreview] = useState<{ file: File; objectUrl: string } | null>(null);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+
+  const [form] = Form.useForm<LayoutFormValues>();
+  const initialSelectionDone = useRef(false);
+
+  const isCreating = selectedKey === NEW_KEY;
+  const selectedLayout = useMemo(
+    () => layouts.find((l) => l.id === selectedKey) || null,
+    [layouts, selectedKey]
+  );
+
+  const watchedName = Form.useWatch('name', form);
+  const watchedWidth = Form.useWatch('widthPx', form);
+  const watchedHeight = Form.useWatch('heightPx', form);
+  const watchedHoles = Form.useWatch('holeCount', form);
+  const watchedSplit = Form.useWatch('isSplit', form);
+  const watchedAuto = Form.useWatch('useHolesAutoCapture', form);
+  const watchedTiers = Form.useWatch('pricingTiers', form);
+
+  const clearPendingPreview = useCallback(() => {
+    setPendingPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev.objectUrl);
+      return null;
+    });
+  }, []);
+
+  useEffect(() => clearPendingPreview, [clearPendingPreview]);
+
+  const applySelection = useCallback(
+    (layout: PhotoLayout | null, allLayouts: PhotoLayout[]) => {
+      clearPendingPreview();
+      form.resetFields();
+      if (layout) {
+        setSelectedKey(layout.id);
+        form.setFieldsValue(toFormValues(layout));
+        setPreviewUrl(layout.previewUrl || '');
+      } else {
+        setSelectedKey(NEW_KEY);
+        form.setFieldsValue({
+          id: '',
+          name: '',
+          slug: '',
+          description: '',
+          widthPx: 1200,
+          heightPx: 1800,
+          holeCount: 4,
+          captureCount: 4,
+          isSplit: false,
+          useHolesAutoCapture: false,
+          isActive: true,
+          displayOrder: allLayouts.length + 1,
+          pricingTiers: DEFAULT_TIERS,
+        });
+        setPreviewUrl('');
+      }
+      setDirty(false);
+    },
+    [clearPendingPreview, form]
+  );
+
+  const loadData = useCallback(async (): Promise<PhotoLayout[] | null> => {
     setLoading(true);
     try {
       const data = await getLayouts();
       setLayouts(data);
+      return data;
     } catch (err: any) {
       console.error(err);
-      message.error(err?.response?.data?.message || 'Không thể tải danh sách khổ ảnh từ server.');
+      message.error(errorMessage(err, 'Không thể tải danh sách khổ ảnh từ server.'));
+      return null;
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadData();
   }, []);
 
-  const formatVnd = (amt: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amt);
+  useEffect(() => {
+    (async () => {
+      const data = await loadData();
+      if (data && !initialSelectionDone.current) {
+        initialSelectionDone.current = true;
+        if (data.length > 0) applySelection(data[0], data);
+      }
+    })();
+  }, [loadData, applySelection]);
+
+  const confirmDiscard = (onOk: () => void) => {
+    if (!dirty) {
+      onOk();
+      return;
+    }
+    Modal.confirm({
+      title: 'Bỏ các thay đổi chưa lưu?',
+      content: 'Khổ ảnh đang mở có thay đổi chưa được lưu. Chuyển sang mục khác sẽ mất các thay đổi này.',
+      okText: 'Bỏ thay đổi',
+      cancelText: 'Ở lại',
+      okButtonProps: { danger: true },
+      onOk,
+    });
   };
 
-  const handleOpenModal = (layout?: PhotoLayout) => {
-    if (layout) {
-      setEditingLayout(layout);
-      form.setFieldsValue({
-        id: layout.id,
-        name: layout.name,
-        slug: layout.slug,
-        widthPx: layout.widthPx,
-        heightPx: layout.heightPx,
-        holeCount: layout.holeCount,
-        description: layout.description,
-        isActive: layout.isActive,
-        displayOrder: layout.displayOrder,
-        pricingTiers:
-          layout.pricingTiers && layout.pricingTiers.length > 0
-            ? layout.pricingTiers
-            : [{ quantity: 2, price: 70000 }],
-      });
-    } else {
-      setEditingLayout(null);
-      form.resetFields();
-      form.setFieldsValue({
-        id: '',
-        name: '',
-        widthPx: 2400,
-        heightPx: 3600,
-        holeCount: 4,
-        isActive: true,
-        displayOrder: layouts.length + 1,
-        pricingTiers: [
-          { quantity: 2, price: 70000 },
-          { quantity: 4, price: 100000 },
-          { quantity: 6, price: 130000 },
-        ],
-      });
+  const handleSelect = (layout: PhotoLayout) => {
+    if (layout.id === selectedKey) return;
+    confirmDiscard(() => applySelection(layout, layouts));
+  };
+
+  const handleStartCreate = () => {
+    if (isCreating) return;
+    confirmDiscard(() => applySelection(null, layouts));
+  };
+
+  const handleReload = () => {
+    confirmDiscard(async () => {
+      const data = await loadData();
+      if (!data) return;
+      const current = data.find((l) => l.id === selectedKey);
+      if (current) applySelection(current, data);
+      else if (data.length > 0) applySelection(data[0], data);
+      else setSelectedKey(null);
+    });
+  };
+
+  const handleValuesChange = (changed: Partial<LayoutFormValues>, all: LayoutFormValues) => {
+    setDirty(true);
+    // Khi bật tự tính, số shots luôn đi theo số ô ảnh
+    if (all.useHolesAutoCapture && ('holeCount' in changed || 'useHolesAutoCapture' in changed)) {
+      form.setFieldValue('captureCount', all.holeCount);
     }
-    setIsModalOpen(true);
+    if ('holeCount' in changed || 'captureCount' in changed) {
+      form.validateFields(['captureCount']).catch(() => undefined);
+    }
+  };
+
+  const handlePickPreset = (key: string) => {
+    clearPendingPreview();
+    setPreviewUrl(`${PRESET_PREFIX}${key}`);
+    setDirty(true);
+    setIsLibraryOpen(false);
+  };
+
+  const handlePickCustomPreview = (file: File) => {
+    if (!/\.(png|jpe?g|webp)$/i.test(file.name)) {
+      message.error('Ảnh preview phải là PNG, JPG hoặc WEBP.');
+      return false;
+    }
+    if (file.size > MAX_PREVIEW_BYTES) {
+      message.error('Ảnh preview tối đa 5 MB.');
+      return false;
+    }
+    clearPendingPreview();
+    setPendingPreview({ file, objectUrl: URL.createObjectURL(file) });
+    setDirty(true);
+    return false;
+  };
+
+  const handleResetPreview = () => {
+    clearPendingPreview();
+    setPreviewUrl('');
+    setDirty(true);
   };
 
   const handleSave = async () => {
+    let values: LayoutFormValues;
     try {
-      const values = await form.validateFields();
-      setSubmitting(true);
+      values = await form.validateFields();
+    } catch {
+      message.warning('Vui lòng kiểm tra lại các trường đang báo lỗi.');
+      return;
+    }
 
-      if (editingLayout) {
-        await updateLayout(editingLayout.id, values);
-        message.success(`Đã cập nhật khổ ảnh '${editingLayout.name}' thành công!`);
-      } else {
-        await createLayout(values);
-        message.success(`Đã tạo khổ ảnh '${values.name}' thành công!`);
+    const tiers = [...(values.pricingTiers || [])].sort((a, b) => a.quantity - b.quantity);
+    const payload: LayoutPayload = {
+      ...values,
+      id: values.id.trim(),
+      name: values.name.trim(),
+      slug: values.slug?.trim() || undefined,
+      captureCount: values.useHolesAutoCapture ? values.holeCount : values.captureCount,
+      pricingTiers: tiers,
+      // Có file tuỳ chỉnh chờ tải lên -> để server giữ nguyên, endpoint upload sẽ ghi đè sau
+      previewUrl: pendingPreview ? undefined : previewUrl,
+    };
+
+    setSaving(true);
+    try {
+      let saved = isCreating
+        ? await createLayout(payload)
+        : await updateLayout(selectedKey as string, payload);
+
+      if (pendingPreview) {
+        try {
+          saved = await uploadLayoutPreview(saved.id, pendingPreview.file);
+        } catch (err: any) {
+          console.error(err);
+          message.warning(
+            errorMessage(err, 'Đã lưu khổ ảnh nhưng tải ảnh preview thất bại. Hãy thử tải lại ảnh.')
+          );
+        }
       }
 
-      setIsModalOpen(false);
-      loadData();
+      message.success(
+        isCreating ? `Đã tạo khổ ảnh '${saved.name}'.` : `Đã lưu thay đổi cho '${saved.name}'.`
+      );
+      const data = await loadData();
+      const fresh = data?.find((l) => l.id === saved.id) || saved;
+      applySelection(fresh, data || layouts);
     } catch (err: any) {
-      if (err?.errorFields) return;
       console.error(err);
-      message.error(err?.response?.data?.message || 'Lỗi khi lưu cấu hình khổ ảnh.');
+      message.error(errorMessage(err, 'Lỗi khi lưu cấu hình khổ ảnh.'));
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
   const handleToggleActive = async (layout: PhotoLayout, checked: boolean) => {
+    setTogglingId(layout.id);
     try {
-      await updateLayout(layout.id, { isActive: checked });
-      message.success(`Đã ${checked ? 'bật' : 'tắt'} khổ ảnh ${layout.name}!`);
-      loadData();
-    } catch (err: any) {
-      message.error('Không thể cập nhật trạng thái.');
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    try {
-      await deleteLayout(id);
-      message.success('Đã xóa khổ ảnh thành công!');
-      loadData();
+      await updateLayout(layout.id, toPayload(layout, { isActive: checked }));
+      setLayouts((prev) => prev.map((l) => (l.id === layout.id ? { ...l, isActive: checked } : l)));
+      // Đồng bộ form đang mở mà không làm mất các chỉnh sửa khác
+      if (layout.id === selectedKey) form.setFieldValue('isActive', checked);
+      message.success(`Đã ${checked ? 'bật' : 'tắt'} khổ ảnh ${layout.name}.`);
     } catch (err: any) {
       console.error(err);
-      message.error(err?.response?.data?.message || 'Không thể xóa khổ ảnh.');
+      message.error(errorMessage(err, 'Không thể cập nhật trạng thái.'));
+    } finally {
+      setTogglingId(null);
     }
   };
 
-  // KPI Calculations
-  const totalLayouts = layouts.length;
-  const activeLayouts = layouts.filter((l) => l.isActive).length;
-  const totalFramesAssigned = layouts.reduce((sum, l) => sum + (l.frameCount || 0), 0);
+  const handleDelete = async () => {
+    if (!selectedLayout) return;
+    try {
+      await deleteLayout(selectedLayout.id);
+      message.success(`Đã xóa khổ ảnh '${selectedLayout.name}'.`);
+      const data = await loadData();
+      if (data && data.length > 0) applySelection(data[0], data);
+      else {
+        setSelectedKey(null);
+        setDirty(false);
+      }
+    } catch (err: any) {
+      console.error(err);
+      message.error(errorMessage(err, 'Không thể xóa khổ ảnh.'));
+    }
+  };
 
-  const columns = [
-    {
-      title: 'Tỉ Lệ',
-      key: 'visual',
-      width: 70,
-      render: (_: any, record: PhotoLayout) => (
-        <LayoutVisualBadge layoutId={record.id} holeCount={record.holeCount} />
-      ),
-    },
-    {
-      title: 'Mã & Tên Khổ Ảnh',
-      key: 'name',
-      render: (_: any, record: PhotoLayout) => (
-        <div>
-          <Space direction="horizontal" size={6} style={{ marginBottom: 4 }}>
-            <Tag color="magenta" style={{ fontWeight: 700, fontSize: 13, padding: '2px 8px' }}>
-              {record.id}
-            </Tag>
-            <Text strong style={{ fontSize: 14, color: '#0f172a' }}>
-              {record.name}
-            </Text>
-            {(record.id.toLowerCase() === '1x4' || record.id.toLowerCase() === '2x6') && (
-              <Tag icon={<ScissorOutlined />} color="orange" style={{ margin: 0 }}>
-                Cắt đôi tự động
-              </Tag>
-            )}
-          </Space>
-          {record.description && (
-            <div style={{ fontSize: 12, color: '#64748b' }}>{record.description}</div>
-          )}
-        </div>
-      ),
-    },
-    {
-      title: 'Thông Số In Ấn',
-      key: 'specs',
-      render: (_: any, record: PhotoLayout) => (
-        <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-          <div>
-            <Text type="secondary">Kích thước:</Text>{' '}
-            <b style={{ fontFamily: 'monospace' }}>{record.widthPx} × {record.heightPx} px</b>
-          </div>
-          <div>
-            <Text type="secondary">Số ô chụp (Holes):</Text>{' '}
-            <Tag color="blue" style={{ fontSize: 11, padding: '0 6px' }}>
-              {record.holeCount} ảnh
-            </Tag>
-          </div>
-        </div>
-      ),
-    },
-    {
-      title: 'Mốc Giá In Lũy Tiến (Pricing Tiers)',
-      key: 'pricingTiers',
-      render: (_: any, record: PhotoLayout) => (
-        <Space wrap size={[6, 6]}>
-          {record.pricingTiers && record.pricingTiers.length > 0 ? (
-            record.pricingTiers.map((tier, idx) => (
-              <Tag
-                key={idx}
-                color="pink"
-                style={{
-                  background: '#fdf2f8',
-                  borderColor: '#fbcfe8',
-                  color: '#be185d',
-                  padding: '2px 8px',
-                  borderRadius: 6,
-                }}
-              >
-                {tier.quantity} bản: <b>{formatVnd(tier.price)}</b>
-              </Tag>
-            ))
-          ) : (
-            <Text type="secondary" style={{ fontSize: 12 }}>Chưa đặt giá</Text>
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: 'Khung Đã Gán',
-      dataIndex: 'frameCount',
-      key: 'frameCount',
-      width: 140,
-      render: (val?: number, record?: PhotoLayout) => (
-        <Link href={`/frames?layout=${record?.id}`}>
-          <Button
-            size="small"
-            icon={<PictureOutlined />}
-            style={{ borderRadius: 6, fontSize: 12 }}
-          >
-            {val ?? 0} khung
-          </Button>
-        </Link>
-      ),
-    },
-    {
-      title: 'Trạng Thái',
-      dataIndex: 'isActive',
-      key: 'isActive',
-      width: 110,
-      render: (active: boolean, record: PhotoLayout) => (
-        <Switch
-          checked={active}
-          onChange={(checked) => handleToggleActive(record, checked)}
-          checkedChildren="Bật"
-          unCheckedChildren="Tắt"
-        />
-      ),
-    },
-    {
-      title: 'Thao tác',
-      key: 'action',
-      width: 130,
-      render: (_: any, record: PhotoLayout) => (
-        <Space direction="horizontal">
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            onClick={() => handleOpenModal(record)}
-            style={{ color: '#0284c7' }}
-          >
-            Sửa
-          </Button>
-          <Popconfirm
-            title="Xác nhận xoá khổ ảnh?"
-            description="Tất cả khung ảnh thuộc khổ này sẽ bị ảnh hưởng!"
-            onConfirm={() => handleDelete(record.id)}
-            okText="Xóa"
-            cancelText="Hủy"
-            okButtonProps={{ danger: true }}
-          >
-            <Button type="text" danger icon={<DeleteOutlined />}>
-              Xóa
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
+  const startingPrice = useMemo(() => {
+    const valid = (watchedTiers || []).filter(
+      (t) => t && typeof t.quantity === 'number' && typeof t.price === 'number'
+    );
+    if (valid.length === 0) return null;
+    return valid.reduce((min, t) => (t.quantity < min.quantity ? t : min));
+  }, [watchedTiers]);
+
+  const previewShape = {
+    id: selectedLayout?.id || 'new',
+    name: watchedName,
+    widthPx: watchedWidth || 1200,
+    heightPx: watchedHeight || 1800,
+    holeCount: watchedHoles || 1,
+    isSplit: !!watchedSplit,
+    previewUrl,
+  };
+
+  const previewSourceLabel = pendingPreview
+    ? 'Ảnh tuỳ chỉnh (sẽ tải lên khi lưu)'
+    : previewUrl.startsWith(PRESET_PREFIX)
+      ? 'Mẫu từ kho preview'
+      : previewUrl
+        ? 'Ảnh tuỳ chỉnh đã tải lên'
+        : 'Tự động theo thông số';
+
+  const describeLayout = (l: PhotoLayout) => {
+    const shots = l.captureCount && l.captureCount > 0 ? l.captureCount : l.holeCount;
+    const parts = [`${l.holeCount} ảnh`, l.useHolesAutoCapture ? 'shots tự động' : `${shots} shots`];
+    if (l.isSplit) parts.push('cắt đôi');
+    return parts.join(' / ');
+  };
 
   return (
     <div>
-      {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div className="hb-page-header">
         <div>
-          <Title level={4} style={{ margin: 0, color: '#0f172a' }}>
-            Cấu Hình Khổ Ảnh (Layouts)
-          </Title>
-          <Text style={{ fontSize: 13, color: '#64748b' }}>
-            Hệ thống quản lý tỷ lệ khổ in, số lần chụp máy ảnh, cắt đôi tự động và bảng giá in ấn lũy tiến theo phong cách HiHiBooth
-          </Text>
+          <h1 className="hb-page-title">Khổ Ảnh &amp; Cấu Hình In (Photo Layouts)</h1>
+          <div className="hb-page-subtitle">
+            Chọn một khổ ảnh ở cột trái để chỉnh preview, thông số chụp/in và bảng giá theo số bản in.
+          </div>
         </div>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={loadData} loading={loading}>
+          <Button icon={<ReloadOutlined />} onClick={handleReload} loading={loading}>
             Làm mới
           </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            style={{ background: '#f86fa5', borderColor: '#f86fa5', borderRadius: 8 }}
-            onClick={() => handleOpenModal()}
-          >
-            Thêm Khổ Mới
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleStartCreate}>
+            Thêm Khổ Ảnh Mới
           </Button>
         </Space>
       </div>
 
-      {/* KPI Summary Cards */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
-        <Col xs={24} sm={8}>
-          <Card style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }} bodyStyle={{ padding: 18 }}>
-            <Statistic
-              title={<span style={{ fontSize: 13, color: '#64748b' }}>Tổng Số Khổ Ảnh</span>}
-              value={totalLayouts}
-              prefix={<AppstoreOutlined style={{ color: '#f86fa5', marginRight: 6 }} />}
-              valueStyle={{ fontWeight: 700, color: '#0f172a' }}
-            />
-          </Card>
+      <Row gutter={[20, 20]} align="top">
+        {/* ------------------------------------------------ Master: danh sách khổ ảnh */}
+        <Col xs={24} lg={8}>
+          <div className="layouts-sidebar">
+            {loading && layouts.length === 0 && (
+              <div style={{ textAlign: 'center', padding: 40 }}>
+                <Spin />
+              </div>
+            )}
+
+            {layouts.map((layout) => {
+              const active = layout.id === selectedKey;
+              return (
+                <div
+                  key={layout.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={active}
+                  className={`layout-item${active ? ' is-active' : ''}`}
+                  onClick={() => handleSelect(layout)}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleSelect(layout);
+                    }
+                  }}
+                >
+                  <div className="layout-item-thumb">
+                    <LayoutPreview layout={layout} size={52} />
+                  </div>
+                  <div className="layout-item-main">
+                    <div className="layout-item-name" title={layout.name}>
+                      {layout.name}
+                    </div>
+                    <div className="layout-item-sub">{describeLayout(layout)}</div>
+                    <Space size={4} style={{ marginTop: 6 }} wrap>
+                      <Tag color="magenta" style={{ margin: 0 }}>
+                        {layout.id}
+                      </Tag>
+                      <Tag style={{ margin: 0 }}>{layout.frameCount ?? 0} frames</Tag>
+                    </Space>
+                  </div>
+                  <Switch
+                    size="small"
+                    checked={layout.isActive}
+                    loading={togglingId === layout.id}
+                    aria-label={`Bật/tắt khổ ảnh ${layout.name}`}
+                    onChange={(checked) => handleToggleActive(layout, checked)}
+                    onClick={(_, e) => e.stopPropagation()}
+                  />
+                </div>
+              );
+            })}
+
+            {isCreating && (
+              <div className="layout-item is-active is-new" aria-current="true">
+                <div className="layout-item-thumb">
+                  <AppstoreOutlined style={{ fontSize: 24, color: '#f86fa5' }} />
+                </div>
+                <div className="layout-item-main">
+                  <div className="layout-item-name">{watchedName || 'Khổ ảnh mới'}</div>
+                  <div className="layout-item-sub">Chưa lưu</div>
+                </div>
+              </div>
+            )}
+
+            {!isCreating && (
+              <Button type="dashed" icon={<PlusOutlined />} onClick={handleStartCreate} block>
+                Thêm layout
+              </Button>
+            )}
+          </div>
         </Col>
-        <Col xs={24} sm={8}>
-          <Card style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }} bodyStyle={{ padding: 18 }}>
-            <Statistic
-              title={<span style={{ fontSize: 13, color: '#64748b' }}>Đang Mở Bán Trên Kiosk</span>}
-              value={activeLayouts}
-              prefix={<CheckCircleOutlined style={{ color: '#10b981', marginRight: 6 }} />}
-              valueStyle={{ fontWeight: 700, color: '#10b981' }}
-              suffix={<span style={{ fontSize: 13, color: '#94a3b8' }}>/ {totalLayouts}</span>}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={8}>
-          <Card style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }} bodyStyle={{ padding: 18 }}>
-            <Statistic
-              title={<span style={{ fontSize: 13, color: '#64748b' }}>Tổng Khung Đang Hoạt Động</span>}
-              value={totalFramesAssigned}
-              prefix={<PictureOutlined style={{ color: '#0284c7', marginRight: 6 }} />}
-              valueStyle={{ fontWeight: 700, color: '#0284c7' }}
-              suffix={<span style={{ fontSize: 13, color: '#64748b' }}>mẫu</span>}
-            />
-          </Card>
+
+        {/* ------------------------------------------------ Detail: khổ ảnh đang chọn */}
+        <Col xs={24} lg={16}>
+          {selectedKey === null && (
+            <div className="hb-card" style={{ padding: 48 }}>
+              <Empty
+                description={
+                  loading ? 'Đang tải khổ ảnh...' : 'Chưa có khổ ảnh nào. Hãy thêm khổ ảnh đầu tiên.'
+                }
+              >
+                {!loading && (
+                  <Button type="primary" icon={<PlusOutlined />} onClick={handleStartCreate}>
+                    Thêm Khổ Ảnh Mới
+                  </Button>
+                )}
+              </Empty>
+            </div>
+          )}
+          {/* Form luôn được mount để instance useForm/useWatch hoạt động trước khi có lựa chọn */}
+          <Form
+            form={form}
+            layout="vertical"
+            requiredMark={false}
+            onValuesChange={handleValuesChange}
+            className="hb-card"
+            style={{ display: selectedKey === null ? 'none' : undefined }}
+          >
+              {/* Header: tên + trạng thái */}
+              <div className="hb-section">
+                <Row gutter={16} align="bottom">
+                  <Col xs={24} md={14}>
+                    <Form.Item
+                      name="name"
+                      label="Tên khổ ảnh"
+                      rules={[{ required: true, whitespace: true, message: 'Vui lòng nhập tên khổ ảnh' }]}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Input size="large" placeholder="ví dụ: Layout 2 Cut Strips" maxLength={100} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={12} md={5}>
+                    <Form.Item
+                      name="id"
+                      label="Mã khổ"
+                      tooltip="Mã định danh duy nhất, máy Kiosk dùng mã này. Không đổi được sau khi tạo."
+                      rules={[
+                        { required: true, whitespace: true, message: 'Nhập mã khổ (vd: 1x4)' },
+                        { max: 32, message: 'Tối đa 32 ký tự' },
+                        {
+                          validator: (_, value) =>
+                            isCreating &&
+                            value &&
+                            layouts.some((l) => l.id.toLowerCase() === String(value).trim().toLowerCase())
+                              ? Promise.reject(new Error('Mã khổ này đã tồn tại'))
+                              : Promise.resolve(),
+                        },
+                      ]}
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Input size="large" placeholder="1x4" disabled={!isCreating} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={12} md={5}>
+                    <Form.Item
+                      name="isActive"
+                      label="Trạng thái"
+                      valuePropName="checked"
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Switch checkedChildren="Đang bật" unCheckedChildren="Đang tắt" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                {dirty && (
+                  <Tag color="gold" style={{ marginTop: 12 }}>
+                    Có thay đổi chưa lưu
+                  </Tag>
+                )}
+              </div>
+
+              {/* 1. Preview */}
+              <div className="hb-section">
+                <div className="hb-section-title">
+                  <span className="hb-step">1</span> Hình ảnh preview khổ ảnh
+                </div>
+                <div className="preview-stage">
+                  <div className="preview-stage-canvas">
+                    {pendingPreview ? (
+                      <img
+                        src={pendingPreview.objectUrl}
+                        alt="Ảnh preview mới"
+                        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 4 }}
+                      />
+                    ) : (
+                      <LayoutPreview layout={previewShape} size={180} />
+                    )}
+                  </div>
+                  <Space direction="vertical" size={10}>
+                    <div className="hb-hint">
+                      Nguồn hiện tại: <b>{previewSourceLabel}</b>
+                    </div>
+                    <Button icon={<PictureOutlined />} onClick={() => setIsLibraryOpen(true)}>
+                      Chọn từ Kho Mẫu Preview
+                    </Button>
+                    <Upload
+                      accept=".png,.jpg,.jpeg,.webp"
+                      showUploadList={false}
+                      beforeUpload={handlePickCustomPreview}
+                    >
+                      <Button icon={<UploadOutlined />}>Tải ảnh Preview Mới</Button>
+                    </Upload>
+                    {(previewUrl || pendingPreview) && (
+                      <Button type="link" style={{ padding: 0 }} onClick={handleResetPreview}>
+                        Dùng preview tự động
+                      </Button>
+                    )}
+                  </Space>
+                </div>
+              </div>
+
+              {/* 2. Thông số chụp & in */}
+              <div className="hb-section">
+                <div className="hb-section-title">
+                  <span className="hb-step">2</span> Thông số chụp và in
+                </div>
+                <Row gutter={16}>
+                  <Col xs={12} md={6}>
+                    <Form.Item
+                      name="holeCount"
+                      label="Số ảnh trên khung"
+                      tooltip="Số ô ảnh (holes) được in trên một khung."
+                      rules={[{ required: true, message: 'Nhập số ảnh' }]}
+                    >
+                      <InputNumber style={{ width: '100%' }} min={1} max={12} precision={0} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={12} md={6}>
+                    <Form.Item
+                      name="captureCount"
+                      label="Số lần bấm máy (shots)"
+                      tooltip="Số ảnh máy chụp để khách chọn. Phải lớn hơn hoặc bằng số ảnh trên khung."
+                      dependencies={['holeCount']}
+                      rules={[
+                        { required: true, message: 'Nhập số shots' },
+                        ({ getFieldValue }) => ({
+                          validator: (_, value) =>
+                            typeof value === 'number' && value < (getFieldValue('holeCount') || 0)
+                              ? Promise.reject(new Error('Không được ít hơn số ảnh trên khung'))
+                              : Promise.resolve(),
+                        }),
+                      ]}
+                    >
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        min={1}
+                        max={24}
+                        precision={0}
+                        disabled={!!watchedAuto}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={12} md={6}>
+                    <Form.Item
+                      name="widthPx"
+                      label="Chiều rộng render"
+                      rules={[{ required: true, message: 'Nhập chiều rộng' }]}
+                    >
+                      <InputNumber style={{ width: '100%' }} min={300} max={6000} precision={0} addonAfter="px" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={12} md={6}>
+                    <Form.Item
+                      name="heightPx"
+                      label="Chiều cao render"
+                      rules={[{ required: true, message: 'Nhập chiều cao' }]}
+                    >
+                      <InputNumber style={{ width: '100%' }} min={300} max={6000} precision={0} addonAfter="px" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Row gutter={16}>
+                  <Col xs={24} md={12}>
+                    <Form.Item
+                      name="isSplit"
+                      valuePropName="checked"
+                      label={
+                        <span>
+                          <ScissorOutlined /> Tách 2 dải in (cắt đôi)
+                        </span>
+                      }
+                      extra="In hai dải giống nhau trên một tờ rồi cắt đôi."
+                    >
+                      <Switch checkedChildren="Có" unCheckedChildren="Không" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Form.Item
+                      name="useHolesAutoCapture"
+                      valuePropName="checked"
+                      label="Tự động tính shots theo lỗ frame"
+                      extra="Số shots lấy theo số lỗ của frame khách chọn; ô shots phía trên bị khoá."
+                    >
+                      <Switch checkedChildren="Bật" unCheckedChildren="Tắt" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Row gutter={16}>
+                  <Col xs={24} md={16}>
+                    <Form.Item name="description" label="Mô tả / ghi chú cắt giấy" style={{ marginBottom: 0 }}>
+                      <Input.TextArea rows={2} maxLength={500} placeholder="ví dụ: Máy in tự cắt làm 2 dải 5x15cm" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={12} md={8}>
+                    <Form.Item name="displayOrder" label="Thứ tự hiển thị" style={{ marginBottom: 0 }}>
+                      <InputNumber style={{ width: '100%' }} min={0} precision={0} />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                {!isCreating && (
+                  <Form.Item name="slug" hidden>
+                    <Input />
+                  </Form.Item>
+                )}
+              </div>
+
+              {/* 3. Bảng giá in */}
+              <div className="hb-section">
+                <div className="hb-section-title">
+                  <span className="hb-step">3</span> Bảng giá in (pricing tiers)
+                </div>
+                <div className="hb-hint" style={{ marginBottom: 12 }}>
+                  Giá khởi điểm:{' '}
+                  <b style={{ color: '#be185d' }}>
+                    {startingPrice
+                      ? `${formatVnd(startingPrice.price)} cho ${startingPrice.quantity} bản in`
+                      : 'chưa đặt giá'}
+                  </b>
+                  . Mỗi bậc là tổng giá cho đúng số bản in đó.
+                </div>
+
+                <Form.List name="pricingTiers">
+                  {(fields, { add, remove }) => (
+                    <>
+                      {fields.map(({ key, name, ...restField }) => (
+                        <div key={key} className="layout-pricing-row">
+                          <Form.Item
+                            {...restField}
+                            name={[name, 'quantity']}
+                            rules={[
+                              { required: true, message: 'Nhập số bản' },
+                              ({ getFieldValue }) => ({
+                                validator: (_, value) => {
+                                  const all: PricingTier[] = getFieldValue('pricingTiers') || [];
+                                  const dup = all.filter((t) => t && t.quantity === value).length > 1;
+                                  return dup
+                                    ? Promise.reject(new Error('Số bản in bị trùng'))
+                                    : Promise.resolve();
+                                },
+                              }),
+                            ]}
+                          >
+                            <InputNumber min={1} max={100} precision={0} addonAfter="bản in" style={{ width: 150 }} />
+                          </Form.Item>
+                          <Form.Item
+                            {...restField}
+                            name={[name, 'price']}
+                            rules={[{ required: true, message: 'Nhập giá tiền' }]}
+                          >
+                            <InputNumber<number>
+                              min={0}
+                              step={5000}
+                              precision={0}
+                              style={{ width: 190 }}
+                              formatter={(val) => `${val ?? ''}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                              parser={(val) => Number((val || '').replace(/[^\d]/g, ''))}
+                              addonAfter="₫"
+                            />
+                          </Form.Item>
+                          <Button
+                            type="text"
+                            danger
+                            icon={<MinusCircleOutlined />}
+                            aria-label="Xóa bậc giá"
+                            onClick={() => remove(name)}
+                          />
+                        </div>
+                      ))}
+                      <Button
+                        type="dashed"
+                        icon={<PlusOutlined />}
+                        onClick={() => {
+                          const all: PricingTier[] = form.getFieldValue('pricingTiers') || [];
+                          const maxQty = all.reduce((m, t) => Math.max(m, t?.quantity || 0), 0);
+                          const lastPrice = all.reduce((m, t) => Math.max(m, t?.price || 0), 0);
+                          add({ quantity: maxQty + 2, price: lastPrice });
+                        }}
+                      >
+                        Thêm bậc in
+                      </Button>
+                    </>
+                  )}
+                </Form.List>
+              </div>
+
+              {/* Toolbar */}
+              <div className="layout-toolbar">
+                <Space wrap>
+                  <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+                    {isCreating ? 'Tạo khổ ảnh' : 'Lưu thay đổi'}
+                  </Button>
+                  {selectedLayout && (
+                    <Link href={`/frames?layout=${encodeURIComponent(selectedLayout.id)}`}>
+                      <Button icon={<PictureOutlined />}>
+                        Xem Frames thuộc Layout ({selectedLayout.frameCount ?? 0})
+                      </Button>
+                    </Link>
+                  )}
+                  {isCreating && layouts.length > 0 && (
+                    <Button onClick={() => applySelection(layouts[0], layouts)}>Hủy tạo mới</Button>
+                  )}
+                </Space>
+                {selectedLayout && (
+                  <Popconfirm
+                    title={`Xóa khổ ảnh '${selectedLayout.name}'?`}
+                    description={
+                      (selectedLayout.frameCount ?? 0) > 0
+                        ? `${selectedLayout.frameCount} frame thuộc khổ này cũng sẽ bị xóa. Không thể hoàn tác.`
+                        : 'Thao tác này không thể hoàn tác.'
+                    }
+                    onConfirm={handleDelete}
+                    okText="Xóa"
+                    cancelText="Hủy"
+                    okButtonProps={{ danger: true }}
+                  >
+                    <Button danger icon={<DeleteOutlined />}>
+                      Xóa Layout
+                    </Button>
+                  </Popconfirm>
+                )}
+              </div>
+          </Form>
         </Col>
       </Row>
 
-      {/* Main Table */}
-      <Card
-        style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
-        bodyStyle={{ padding: 0 }}
-      >
-        <Table
-          dataSource={layouts}
-          columns={columns}
-          rowKey="id"
-          loading={loading}
-          pagination={false}
-        />
-      </Card>
-
-      {/* Create / Edit Layout Modal */}
+      {/* Kho mẫu preview */}
       <Modal
-        title={editingLayout ? `Chỉnh Sửa Khổ Ảnh: ${editingLayout.name}` : 'Tạo Khổ Ảnh Mới'}
-        open={isModalOpen}
-        onOk={handleSave}
-        confirmLoading={submitting}
-        onCancel={() => setIsModalOpen(false)}
-        okText="Lưu Khổ Ảnh"
-        cancelText="Hủy"
-        width={680}
-        destroyOnClose
+        title="Kho Mẫu Preview Khổ Ảnh"
+        open={isLibraryOpen}
+        onCancel={() => setIsLibraryOpen(false)}
+        footer={null}
+        width={640}
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
-            <Form.Item
-              name="id"
-              label="Mã Khổ (ID / Slug)"
-              rules={[{ required: true, message: 'Nhập mã khổ (vd: 1x4, 2x2, 2x3)' }]}
-              tooltip="Mã định danh duy nhất (Slug) phục vụ kết nối máy Kiosk"
-            >
-              <Input placeholder="ví dụ: 1x4" disabled={!!editingLayout} />
-            </Form.Item>
-
-            <Form.Item
-              name="name"
-              label="Tên Hiển Thị Khổ Ảnh"
-              rules={[{ required: true, message: 'Vui lòng nhập tên khổ ảnh' }]}
-            >
-              <Input placeholder="ví dụ: Dải 4 ảnh đôi (2 Cut Strips)" />
-            </Form.Item>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-            <Form.Item
-              name="widthPx"
-              label="Chiều Rộng In (Width)"
-              rules={[{ required: true, message: 'Nhập chiều rộng pixel' }]}
-            >
-              <InputNumber style={{ width: '100%' }} min={600} max={6000} addonAfter="px" />
-            </Form.Item>
-
-            <Form.Item
-              name="heightPx"
-              label="Chiều Cao In (Height)"
-              rules={[{ required: true, message: 'Nhập chiều cao pixel' }]}
-            >
-              <InputNumber style={{ width: '100%' }} min={600} max={6000} addonAfter="px" />
-            </Form.Item>
-
-            <Form.Item
-              name="holeCount"
-              label="Số Ô Ảnh (Holes)"
-              rules={[{ required: true, message: 'Nhập số ô ảnh' }]}
-            >
-              <InputNumber style={{ width: '100%' }} min={1} max={12} addonAfter="ô" />
-            </Form.Item>
-          </div>
-
-          <Form.Item name="description" label="Mô Tả & Ghi Chú Cắt Giấy">
-            <Input.TextArea rows={2} placeholder="ví dụ: Máy in tự động cắt làm 2 dải film nhỏ 5x15cm..." />
-          </Form.Item>
-
-          <Divider style={{ margin: '16px 0 12px 0' }}>Bảng Giá In Lũy Tiến (Pricing Tiers)</Divider>
-          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-            Cấu hình các mức giá ưu đãi khi khách hàng chọn in thêm số lượng bản tại máy Kiosk:
-          </Text>
-
-          <Form.List name="pricingTiers">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...restField }) => (
-                  <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'quantity']}
-                      rules={[{ required: true, message: 'Nhập số bản' }]}
-                    >
-                      <InputNumber min={1} placeholder="Số bản in" addonAfter="bản" />
-                    </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'price']}
-                      rules={[{ required: true, message: 'Nhập giá tiền' }]}
-                    >
-                      <InputNumber
-                        min={0}
-                        step={5000}
-                        style={{ width: 180 }}
-                        formatter={(val) => `${val}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                        addonAfter="₫"
-                      />
-                    </Form.Item>
-                    <MinusCircleOutlined
-                      onClick={() => remove(name)}
-                      style={{ color: '#ef4444', fontSize: 16 }}
-                    />
-                  </Space>
-                ))}
-                <Form.Item>
-                  <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                    Thêm Mốc Giá In
-                  </Button>
-                </Form.Item>
-              </>
-            )}
-          </Form.List>
-
-          <div style={{ display: 'flex', gap: 24, marginTop: 12 }}>
-            <Form.Item name="isActive" label="Kích Hoạt Trên Kiosk" valuePropName="checked">
-              <Switch checkedChildren="Bật" unCheckedChildren="Tắt" />
-            </Form.Item>
-            <Form.Item name="displayOrder" label="Thứ Tự Sắp Xếp">
-              <InputNumber min={0} />
-            </Form.Item>
-          </div>
-        </Form>
+        <div className="hb-hint" style={{ marginBottom: 14 }}>
+          Chọn một mẫu minh hoạ bố cục. Mẫu chỉ dùng để hiển thị; thông số chụp/in vẫn theo mục 2.
+        </div>
+        <div className="preview-library-grid">
+          {LAYOUT_PREVIEW_PRESETS.map((preset) => {
+            const active = !pendingPreview && previewUrl === `${PRESET_PREFIX}${preset.key}`;
+            return (
+              <button
+                key={preset.key}
+                type="button"
+                className={`preview-library-item${active ? ' is-active' : ''}`}
+                aria-pressed={active}
+                onClick={() => handlePickPreset(preset.key)}
+              >
+                <span className="preview-library-item-art">
+                  <PresetGraphic preset={preset} size={104} />
+                </span>
+                {preset.label}
+              </button>
+            );
+          })}
+        </div>
       </Modal>
     </div>
   );

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using VietQrKiosk.Server.Entities;
 using VietQrKiosk.Server.Infra.Repositories;
 using VietQrKiosk.Server.Models;
+using VietQrKiosk.Server.Services.Interfaces;
 
 namespace VietQrKiosk.Server.Controllers;
 
@@ -13,11 +14,13 @@ namespace VietQrKiosk.Server.Controllers;
 public class LayoutsController : ControllerBase
 {
     private readonly IPhotoLayoutRepository _layoutRepo;
+    private readonly IStorageService _storageService;
     private readonly ILogger<LayoutsController> _logger;
 
-    public LayoutsController(IPhotoLayoutRepository layoutRepo, ILogger<LayoutsController> logger)
+    public LayoutsController(IPhotoLayoutRepository layoutRepo, IStorageService storageService, ILogger<LayoutsController> logger)
     {
         _layoutRepo = layoutRepo;
+        _storageService = storageService;
         _logger = logger;
     }
 
@@ -90,6 +93,10 @@ public class LayoutsController : ControllerBase
             IsActive = request.IsActive,
             DisplayOrder = request.DisplayOrder,
             PricingTiersJson = tiersJson,
+            CaptureCount = Math.Max(0, request.CaptureCount ?? 0),
+            IsSplit = request.IsSplit ?? false,
+            UseHolesAutoCapture = request.UseHolesAutoCapture ?? false,
+            PreviewUrl = NormalizePreviewUrl(request.PreviewUrl),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -127,11 +134,77 @@ public class LayoutsController : ControllerBase
         layout.IsActive = request.IsActive;
         layout.DisplayOrder = request.DisplayOrder;
         layout.PricingTiersJson = tiersJson;
+        if (request.CaptureCount.HasValue) layout.CaptureCount = Math.Max(0, request.CaptureCount.Value);
+        if (request.IsSplit.HasValue) layout.IsSplit = request.IsSplit.Value;
+        if (request.UseHolesAutoCapture.HasValue) layout.UseHolesAutoCapture = request.UseHolesAutoCapture.Value;
+        string? replacedPreview = null;
+        if (request.PreviewUrl != null)
+        {
+            var nextPreview = NormalizePreviewUrl(request.PreviewUrl);
+            if (nextPreview != layout.PreviewUrl) replacedPreview = layout.PreviewUrl;
+            layout.PreviewUrl = nextPreview;
+        }
+        layout.UpdatedAt = DateTime.UtcNow;
 
         await _layoutRepo.UpdateAsync(layout, ct);
         await _layoutRepo.SaveChangesAsync(ct);
 
+        DeleteUploadedPreview(replacedPreview, ct);
+
         _logger.LogInformation("Updated layout: {LayoutId}", layout.Id);
+        return Ok(MapToDto(layout));
+    }
+
+    /// <remarks>
+    /// Uploads a custom preview image for a layout and stores its URL in PreviewUrl.
+    /// </remarks>
+    /// <param name="id" example="1x4">Unique layout format code.</param>
+    /// <param name="file">Preview image (.png, .jpg, .jpeg, .webp), max 5 MB.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Updated PhotoLayoutDto.</returns>
+    [HttpPost("{id}/preview")]
+    [Authorize]
+    [Consumes("multipart/form-data")]
+    public async Task<ActionResult<PhotoLayoutDto>> UploadPreview(string id, [FromForm] IFormFile file, CancellationToken ct = default)
+    {
+        var layout = await _layoutRepo.GetByIdAsync(id, ct);
+        if (layout == null) return NotFound(new ErrorBody($"Photo layout '{id}' not found."));
+
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new ErrorBody("Preview image file upload is required."));
+        }
+        if (file.Length > 5 * 1024 * 1024)
+        {
+            return BadRequest(new ErrorBody("Preview image must be 5 MB or smaller."));
+        }
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        var contentType = ext switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            _ => null
+        };
+        if (contentType == null)
+        {
+            return BadRequest(new ErrorBody("Preview image must be .PNG, .JPG or .WEBP."));
+        }
+
+        var oldPreview = layout.PreviewUrl;
+        using (var stream = file.OpenReadStream())
+        {
+            layout.PreviewUrl = await _storageService.UploadFileAsync(stream, file.FileName, contentType, "layouts", ct);
+        }
+        layout.UpdatedAt = DateTime.UtcNow;
+
+        await _layoutRepo.UpdateAsync(layout, ct);
+        await _layoutRepo.SaveChangesAsync(ct);
+
+        if (oldPreview != layout.PreviewUrl) DeleteUploadedPreview(oldPreview, ct);
+
+        _logger.LogInformation("Uploaded preview for layout: {LayoutId}", layout.Id);
         return Ok(MapToDto(layout));
     }
 
@@ -147,6 +220,21 @@ public class LayoutsController : ControllerBase
         if (!success) return NotFound(new ErrorBody($"Photo layout '{id}' not found."));
         await _layoutRepo.SaveChangesAsync(ct);
         return NoContent();
+    }
+
+    private const string PresetPrefix = "preset:";
+
+    private static string? NormalizePreviewUrl(string? value)
+    {
+        var trimmed = value?.Trim();
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+    }
+
+    // Chỉ xoá file đã tải lên; giá trị "preset:<key>" là mẫu dựng sẵn phía CMS, không có file.
+    private void DeleteUploadedPreview(string? previewUrl, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(previewUrl) || previewUrl.StartsWith(PresetPrefix, StringComparison.OrdinalIgnoreCase)) return;
+        _ = _storageService.DeleteFileAsync(previewUrl, ct);
     }
 
     private static PhotoLayoutDto MapToDto(PhotoLayout entity)
@@ -175,7 +263,11 @@ public class LayoutsController : ControllerBase
             IsActive: entity.IsActive,
             DisplayOrder: entity.DisplayOrder,
             PricingTiers: tiers,
-            FrameCount: entity.Frames?.Count ?? 0
+            FrameCount: entity.Frames?.Count ?? 0,
+            CaptureCount: entity.CaptureCount > 0 ? entity.CaptureCount : entity.HoleCount,
+            IsSplit: entity.IsSplit,
+            UseHolesAutoCapture: entity.UseHolesAutoCapture,
+            PreviewUrl: entity.PreviewUrl
         );
     }
 }

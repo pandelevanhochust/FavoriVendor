@@ -1,165 +1,271 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Card,
-  Row,
-  Col,
-  Typography,
   Button,
-  Tag,
-  Space,
-  Upload,
-  Modal,
+  Col,
+  Empty,
   Form,
   Input,
-  Select,
   InputNumber,
-  Slider,
-  Switch,
-  message,
+  Modal,
   Popconfirm,
+  Row,
+  Segmented,
+  Select,
+  Slider,
+  Space,
   Spin,
-  Empty,
-  Tooltip,
-  Radio,
-  Divider,
+  Switch,
+  Tag,
+  Upload,
+  message,
 } from 'antd';
 import {
-  PlusOutlined,
-  UploadOutlined,
-  EyeOutlined,
   DeleteOutlined,
   EditOutlined,
-  ReloadOutlined,
   InboxOutlined,
-  CheckCircleOutlined,
-  FilterOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  UndoOutlined,
 } from '@ant-design/icons';
 import {
   PhotoFilter,
-  getFilters,
   createFilter,
-  updateFilter,
   deleteFilter,
+  getFilters,
   resolveAssetUrl,
+  updateFilter,
 } from '../api/photoFilterApi';
+import { FilterCompare, FilterLook, FilterPreview } from '../components/filters/FilterPreview';
+import {
+  BLEND_MODES,
+  BlendMode,
+  CSS_SLIDERS,
+  CssFilterValues,
+  CubeLut,
+  DEFAULT_CSS_VALUES,
+  DEFAULT_TEXTURE_VALUES,
+  FilterMode,
+  TextureValues,
+  isCubeFile,
+  parseCubeLut,
+  parseFilterConfig,
+  serializeFilterConfig,
+} from '../utils/filterConfig';
 
-const { Title, Text } = Typography;
+const CATEGORY_OPTIONS = [
+  { label: 'General (Mặc định)', value: 'General' },
+  { label: 'Film (Màu phim)', value: 'Film' },
+  { label: 'Black & White (Đen trắng)', value: 'Black & White' },
+  { label: 'Natural (Tự nhiên)', value: 'Natural' },
+  { label: 'Vintage (Hoài niệm)', value: 'Vintage' },
+];
 
-const SAMPLE_IMAGE_URL = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500&auto=format&fit=crop&q=80';
+const MAX_LUT_BYTES = 20 * 1024 * 1024;
+
+const errorMessage = (err: any, fallback: string) =>
+  err?.response?.data?.message || err?.response?.data?.error || fallback;
+
+/** File texture/LUT người dùng vừa chọn trong modal (chưa tải lên). */
+interface PendingAsset {
+  file: File;
+  isCube: boolean;
+  /** LUT đã parse (file .cube) */
+  lut?: CubeLut;
+  /** Object URL để xem trước (file ảnh) */
+  objectUrl?: string;
+}
+
+/** Cách hiển thị một bộ lọc đã lưu trên thẻ. */
+function lookOfSavedFilter(filter: PhotoFilter): FilterLook {
+  const config = parseFilterConfig(filter.configJson, filter.type, filter.intensityDefault);
+  if (config.mode === 'css') return { kind: 'css', css: config.css };
+  if (!filter.lutUrl) return { kind: 'none' };
+  const src = resolveAssetUrl(filter.lutUrl);
+  return isCubeFile(filter.lutUrl)
+    ? { kind: 'cube', src, opacity: config.texture.opacity }
+    : { kind: 'texture', src, opacity: config.texture.opacity, blendMode: config.texture.blendMode };
+}
+
+function tagOfSavedFilter(filter: PhotoFilter): { color: string; text: string } {
+  if (filter.type === 'Preset') return { color: 'blue', text: 'CSS Preset' };
+  if (isCubeFile(filter.lutUrl)) return { color: 'magenta', text: '3D LUT .cube' };
+  const config = parseFilterConfig(filter.configJson, filter.type, filter.intensityDefault);
+  return { color: 'purple', text: `Texture / ${config.texture.blendMode}` };
+}
 
 export default function FiltersPage() {
   const [filters, setFilters] = useState<PhotoFilter[]>([]);
   const [loading, setLoading] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>(undefined);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
 
-  // Modal State
+  // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingFilter, setEditingFilter] = useState<PhotoFilter | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [filterType, setFilterType] = useState<'LUT' | 'Preset'>('LUT');
-
-  const [lutFileList, setLutFileList] = useState<any[]>([]);
-  const [thumbFileList, setThumbFileList] = useState<any[]>([]);
-  const [intensityValue, setIntensityValue] = useState<number>(100);
-
-  // Preview Modal
-  const [previewingFilter, setPreviewingFilter] = useState<PhotoFilter | null>(null);
+  const [mode, setMode] = useState<FilterMode>('css');
+  const [cssValues, setCssValues] = useState<CssFilterValues>(DEFAULT_CSS_VALUES);
+  const [textureValues, setTextureValues] = useState<TextureValues>(DEFAULT_TEXTURE_VALUES);
+  const [pendingAsset, setPendingAsset] = useState<PendingAsset | null>(null);
 
   const [form] = Form.useForm();
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getFilters({ category: categoryFilter });
-      setFilters(data);
+      setFilters(await getFilters({ category: categoryFilter }));
     } catch (err: any) {
       console.error(err);
-      message.error(err?.response?.data?.message || 'Không thể tải danh sách bộ lọc.');
+      message.error(errorMessage(err, 'Không thể tải danh sách bộ lọc.'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [categoryFilter]);
 
   useEffect(() => {
     loadData();
-  }, [categoryFilter]);
+  }, [loadData]);
+
+  const clearPendingAsset = useCallback(() => {
+    setPendingAsset((prev) => {
+      if (prev?.objectUrl) URL.revokeObjectURL(prev.objectUrl);
+      return null;
+    });
+  }, []);
+
+  useEffect(() => clearPendingAsset, [clearPendingAsset]);
 
   const handleOpenModal = (filter?: PhotoFilter) => {
-    setLutFileList([]);
-    setThumbFileList([]);
+    clearPendingAsset();
+    form.resetFields();
     if (filter) {
+      const config = parseFilterConfig(filter.configJson, filter.type, filter.intensityDefault);
       setEditingFilter(filter);
-      setFilterType(filter.type);
-      setIntensityValue(Math.round(filter.intensityDefault * 100));
+      setMode(config.mode);
+      setCssValues(config.css);
+      setTextureValues(config.texture);
       form.setFieldsValue({
         code: filter.code,
         name: filter.name,
         category: filter.category,
-        type: filter.type,
-        intensityDefault: Math.round(filter.intensityDefault * 100),
         displayOrder: filter.displayOrder,
         isActive: filter.isActive,
-        configJson: filter.configJson,
       });
     } else {
       setEditingFilter(null);
-      setFilterType('LUT');
-      setIntensityValue(100);
-      form.resetFields();
+      setMode('css');
+      setCssValues(DEFAULT_CSS_VALUES);
+      setTextureValues(DEFAULT_TEXTURE_VALUES);
       form.setFieldsValue({
         code: '',
         name: '',
-        category: 'Film',
-        type: 'LUT',
-        intensityDefault: 100,
-        displayOrder: 1,
+        category: 'General',
+        displayOrder: filters.length + 1,
         isActive: true,
       });
     }
     setIsModalOpen(true);
   };
 
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    clearPendingAsset();
+  };
+
+  const handlePickAsset = async (file: File) => {
+    const lower = file.name.toLowerCase();
+    const cube = lower.endsWith('.cube');
+    if (!cube && !lower.endsWith('.png')) {
+      message.error('Chỉ nhận file 3D LUT .cube hoặc texture .png.');
+      return;
+    }
+    if (file.size > MAX_LUT_BYTES) {
+      message.error('File tối đa 20 MB.');
+      return;
+    }
+
+    if (cube) {
+      try {
+        const lut = parseCubeLut(await file.text());
+        clearPendingAsset();
+        setPendingAsset({ file, isCube: true, lut });
+      } catch (err: any) {
+        message.error(`File .cube không hợp lệ: ${err?.message || 'không đọc được'}`);
+      }
+      return;
+    }
+
+    clearPendingAsset();
+    setPendingAsset({ file, isCube: false, objectUrl: URL.createObjectURL(file) });
+  };
+
+  // File đang có hiệu lực ở chế độ texture: file vừa chọn, nếu không thì file đã lưu của bộ lọc đang sửa
+  const savedLutUrl = editingFilter?.type === 'LUT' ? editingFilter.lutUrl : undefined;
+  const activeAssetIsCube = pendingAsset ? pendingAsset.isCube : isCubeFile(savedLutUrl);
+  const hasTextureAsset = !!pendingAsset || !!savedLutUrl;
+
+  const modalLook: FilterLook = useMemo(() => {
+    if (mode === 'css') return { kind: 'css', css: cssValues };
+    if (pendingAsset?.isCube) return { kind: 'cube', lut: pendingAsset.lut, opacity: textureValues.opacity };
+    if (pendingAsset?.objectUrl) {
+      return {
+        kind: 'texture',
+        src: pendingAsset.objectUrl,
+        opacity: textureValues.opacity,
+        blendMode: textureValues.blendMode,
+      };
+    }
+    if (savedLutUrl) {
+      const src = resolveAssetUrl(savedLutUrl);
+      return isCubeFile(savedLutUrl)
+        ? { kind: 'cube', src, opacity: textureValues.opacity }
+        : { kind: 'texture', src, opacity: textureValues.opacity, blendMode: textureValues.blendMode };
+    }
+    return { kind: 'none' };
+  }, [mode, cssValues, textureValues, pendingAsset, savedLutUrl]);
+
   const handleSave = async () => {
+    let vals: any;
     try {
-      const vals = await form.validateFields();
-      if (!editingFilter && filterType === 'LUT' && lutFileList.length === 0) {
-        message.error('Vui lòng tải lên file ảnh LUT PNG!');
-        return;
-      }
+      vals = await form.validateFields();
+    } catch {
+      return;
+    }
+    if (mode === 'texture' && !hasTextureAsset) {
+      message.error('Vui lòng tải lên file 3D LUT .cube hoặc texture .png.');
+      return;
+    }
 
-      setSubmitting(true);
+    setSubmitting(true);
+    try {
+      const name = vals.name.trim();
       const formData = new FormData();
-      formData.append('name', vals.name);
+      formData.append('name', name);
       formData.append('category', vals.category || 'General');
-      formData.append('type', vals.type);
-      formData.append('intensityDefault', ((vals.intensityDefault || 100) / 100).toString());
-      formData.append('displayOrder', (vals.displayOrder || 0).toString());
+      formData.append('type', mode === 'css' ? 'Preset' : 'LUT');
+      formData.append('intensityDefault', (mode === 'css' ? 1 : textureValues.opacity / 100).toString());
+      formData.append('displayOrder', (vals.displayOrder ?? 0).toString());
       formData.append('isActive', (vals.isActive ?? true).toString());
-      if (vals.configJson) formData.append('configJson', vals.configJson);
-
-      if (lutFileList.length > 0) {
-        formData.append('lutFile', lutFileList[0].originFileObj || lutFileList[0]);
-      }
-      if (thumbFileList.length > 0) {
-        formData.append('thumbnailFile', thumbFileList[0].originFileObj || thumbFileList[0]);
-      }
+      formData.append(
+        'configJson',
+        serializeFilterConfig({ mode, css: cssValues, texture: textureValues })
+      );
+      if (mode === 'texture' && pendingAsset) formData.append('lutFile', pendingAsset.file);
 
       if (editingFilter) {
         await updateFilter(editingFilter.id, formData);
-        message.success(`Đã cập nhật bộ lọc '${editingFilter.name}'!`);
+        message.success(`Đã cập nhật bộ lọc '${name}'.`);
       } else {
-        formData.append('code', vals.code);
+        formData.append('code', vals.code.trim());
         await createFilter(formData);
-        message.success(`Đã thêm bộ lọc mới '${vals.name}'!`);
+        message.success(`Đã thêm bộ lọc mới '${name}'.`);
       }
 
-      setIsModalOpen(false);
+      handleCloseModal();
       loadData();
     } catch (err: any) {
-      if (err?.errorFields) return;
       console.error(err);
-      message.error(err?.response?.data?.message || 'Lỗi khi lưu bộ lọc.');
+      message.error(errorMessage(err, 'Lỗi khi lưu bộ lọc.'));
     } finally {
       setSubmitting(false);
     }
@@ -168,333 +274,317 @@ export default function FiltersPage() {
   const handleDelete = async (id: number) => {
     try {
       await deleteFilter(id);
-      message.success('Đã xóa bộ lọc!');
+      message.success('Đã xóa bộ lọc.');
       loadData();
     } catch (err: any) {
       console.error(err);
-      message.error(err?.response?.data?.message || 'Không thể xóa bộ lọc.');
+      message.error(errorMessage(err, 'Không thể xóa bộ lọc.'));
     }
   };
 
   const handleToggleActive = async (filter: PhotoFilter, checked: boolean) => {
+    setTogglingId(filter.id);
     try {
       const formData = new FormData();
       formData.append('name', filter.name);
       formData.append('isActive', checked.toString());
       await updateFilter(filter.id, formData);
-      setFilters((prev) =>
-        prev.map((f) => (f.id === filter.id ? { ...f, isActive: checked } : f))
-      );
-      message.success(`Đã ${checked ? 'bật' : 'tắt'} bộ lọc '${filter.name}'`);
-    } catch (err) {
-      message.error('Không thể cập nhật trạng thái.');
+      setFilters((prev) => prev.map((f) => (f.id === filter.id ? { ...f, isActive: checked } : f)));
+      message.success(`Đã ${checked ? 'bật' : 'tắt'} bộ lọc '${filter.name}'.`);
+    } catch (err: any) {
+      console.error(err);
+      message.error(errorMessage(err, 'Không thể cập nhật trạng thái.'));
+    } finally {
+      setTogglingId(null);
     }
   };
 
-  // Render Live Canvas Preview khi chọn ảnh LUT
-  useEffect(() => {
-    if (!isModalOpen || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = SAMPLE_IMAGE_URL;
-    img.onload = () => {
-      canvas.width = 240;
-      canvas.height = 320;
-      ctx.drawImage(img, 0, 0, 240, 320);
-
-      // Nếu có hiệu ứng Preset CSS hoặc demo filter
-      if (filterType === 'Preset') {
-        const code = form.getFieldValue('code');
-        if (code === 'classic_bw') {
-          ctx.filter = `grayscale(${intensityValue}%) contrast(${100 + intensityValue * 0.2}%)`;
-        } else if (code === 'vintage_warm') {
-          ctx.filter = `sepia(${intensityValue * 0.4}%) contrast(105%)`;
-        } else if (code === 'korean_soft') {
-          ctx.filter = `brightness(105%) saturate(${100 + intensityValue * 0.15}%)`;
-        }
-        ctx.drawImage(img, 0, 0, 240, 320);
-        ctx.filter = 'none';
-      }
-    };
-  }, [isModalOpen, filterType, intensityValue]);
+  const cssIsDefault = CSS_SLIDERS.every((s) => cssValues[s.key] === DEFAULT_CSS_VALUES[s.key]);
+  const savedAssetName = savedLutUrl ? decodeURIComponent(savedLutUrl.split('/').pop()?.split('?')[0] || '') : '';
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div className="hb-page-header">
         <div>
-          <Title level={4} style={{ margin: 0 }}>Quản Lý Bộ Lọc Màu (Photo Filters & LUTs)</Title>
-          <Text style={{ fontSize: 13, color: '#64748b' }}>
-            Quản lý các bảng màu 3D LUT PNG và Presets màu cho khách hàng chọn trước khi in tại máy Kiosk
-          </Text>
+          <h1 className="hb-page-title">Bộ Lọc Màu &amp; Presets (Photo Filters)</h1>
+          <div className="hb-page-subtitle">
+            Tạo và chỉnh sửa các preset màu sắc &amp; 3D LUT cho ứng dụng chụp ảnh.
+          </div>
         </div>
-        <Space>
+        <Space wrap>
+          <Select
+            style={{ width: 210 }}
+            placeholder="Tất cả danh mục"
+            allowClear
+            value={categoryFilter}
+            onChange={(val) => setCategoryFilter(val)}
+            options={CATEGORY_OPTIONS}
+            aria-label="Lọc theo danh mục"
+          />
           <Button icon={<ReloadOutlined />} onClick={loadData} loading={loading}>
             Làm mới
           </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            style={{ background: '#f86fa5', borderColor: '#f86fa5', borderRadius: 8 }}
-            onClick={() => handleOpenModal()}
-          >
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenModal()}>
             Thêm Bộ Lọc Mới
           </Button>
         </Space>
       </div>
 
-      {/* Filter Bar */}
-      <Card style={{ marginBottom: 20, borderRadius: 12, border: 'none' }} bodyStyle={{ padding: 14 }}>
-        <Space direction="horizontal" size={16} wrap>
-          <span><b>Lọc theo Danh mục:</b></span>
-          <Select
-            style={{ width: 200 }}
-            placeholder="Tất cả danh mục"
-            allowClear
-            value={categoryFilter}
-            onChange={(val) => setCategoryFilter(val)}
-            options={[
-              { label: 'Tất cả danh mục', value: undefined as any },
-              { label: 'General (Mặc định)', value: 'General' },
-              { label: 'Film (Màu phim)', value: 'Film' },
-              { label: 'Black & White (Đen trắng)', value: 'Black & White' },
-              { label: 'Natural (Tự nhiên)', value: 'Natural' },
-              { label: 'Vintage (Hoài niệm)', value: 'Vintage' },
-            ]}
-          />
-        </Space>
-      </Card>
-
-      {/* Filter Cards Grid */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
+      {loading && filters.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 60 }}>
+          <Spin size="large" />
+        </div>
       ) : filters.length === 0 ? (
-        <Card style={{ borderRadius: 12, textAlign: 'center', padding: 40 }}>
-          <Empty description="Chưa có bộ lọc nào. Hãy nhấn 'Thêm Bộ Lọc Mới' để bắt đầu!" />
-        </Card>
+        <div className="hb-card" style={{ textAlign: 'center', padding: 40 }}>
+          <Empty
+            description={
+              categoryFilter
+                ? `Chưa có bộ lọc nào trong danh mục '${categoryFilter}'.`
+                : "Chưa có bộ lọc nào. Nhấn 'Thêm Bộ Lọc Mới' để bắt đầu."
+            }
+          />
+        </div>
       ) : (
-        <Row gutter={[20, 20]}>
+        <div className="filter-grid">
           {filters.map((filter) => {
-            const thumbUrl = resolveAssetUrl(filter.thumbnailUrl);
+            const tag = tagOfSavedFilter(filter);
             return (
-              <Col xs={24} sm={12} md={8} lg={6} key={filter.id}>
-                <Card
-                  hoverable
-                  style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #f1f5f9' }}
-                  cover={
-                    <div
-                      style={{
-                        height: 200,
-                        background: '#1e293b',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        position: 'relative',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      {thumbUrl ? (
-                        <img
-                          alt={filter.name}
-                          src={thumbUrl}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        />
-                      ) : (
-                        <div style={{ textAlign: 'center', color: '#94a3b8' }}>
-                          <FilterOutlined style={{ fontSize: 36, marginBottom: 8, color: '#f86fa5' }} />
-                          <div style={{ fontSize: 13, fontWeight: 500 }}>{filter.name}</div>
-                          <div style={{ fontSize: 11 }}>Type: {filter.type}</div>
-                        </div>
-                      )}
-                      <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', gap: 4 }}>
-                        <Tag color={filter.type === 'LUT' ? 'magenta' : 'blue'} style={{ margin: 0, fontWeight: 600 }}>
-                          {filter.type}
-                        </Tag>
-                        <Tag color="cyan" style={{ margin: 0 }}>{filter.category}</Tag>
-                      </div>
-                      <div style={{ position: 'absolute', top: 10, right: 10 }}>
-                        <Switch
-                          size="small"
-                          checked={filter.isActive}
-                          onChange={(checked) => handleToggleActive(filter, checked)}
-                        />
-                      </div>
-                    </div>
-                  }
-                  actions={[
-                    <Button
-                      type="text"
-                      icon={<EditOutlined />}
-                      onClick={() => handleOpenModal(filter)}
-                      style={{ color: '#0284c7' }}
-                    >
-                      Sửa
-                    </Button>,
-                    <Popconfirm
-                      title="Xóa bộ lọc màu này?"
-                      description="Tệp tin lưu trữ và cấu hình sẽ bị xóa!"
-                      onConfirm={() => handleDelete(filter.id)}
-                      okText="Xóa"
-                      cancelText="Hủy"
-                      okButtonProps={{ danger: true }}
-                    >
-                      <Button type="text" danger icon={<DeleteOutlined />}>
-                        Xóa
-                      </Button>
-                    </Popconfirm>,
-                  ]}
-                >
-                  <Card.Meta
-                    title={<span style={{ fontSize: 15, fontWeight: 600 }}>{filter.name}</span>}
-                    description={
-                      <div>
-                        <div style={{ fontSize: 12, color: '#64748b', fontFamily: 'monospace' }}>
-                          Code: {filter.code}
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginTop: 4 }}>
-                          <span>Độ đậm: <b>{Math.round(filter.intensityDefault * 100)}%</b></span>
-                          <span>Thứ tự: #{filter.displayOrder}</span>
-                        </div>
-                      </div>
-                    }
-                  />
-                </Card>
-              </Col>
+              <div key={filter.id} className={`hb-hover-card${filter.isActive ? '' : ' is-inactive'}`}>
+                <div className="filter-card-media">
+                  <div className="hb-card-media" style={{ width: '100%', height: '100%' }}>
+                    <FilterPreview look={lookOfSavedFilter(filter)} alt={`Xem trước bộ lọc ${filter.name}`} />
+                  </div>
+                  <div className="hb-card-badges">
+                    <Tag color={tag.color} style={{ margin: 0, fontWeight: 600 }}>
+                      {tag.text}
+                    </Tag>
+                  </div>
+                  <div className="hb-card-switch">
+                    <Switch
+                      size="small"
+                      checked={filter.isActive}
+                      loading={togglingId === filter.id}
+                      aria-label={`Bật/tắt bộ lọc ${filter.name}`}
+                      onChange={(checked) => handleToggleActive(filter, checked)}
+                    />
+                  </div>
+                </div>
+
+                <div className="hb-card-body">
+                  <div className="hb-card-name" title={filter.name}>
+                    {filter.name}
+                  </div>
+                  <div className="hb-card-meta">
+                    <span style={{ fontFamily: 'monospace' }}>{filter.code}</span>
+                    <span>{filter.category}</span>
+                  </div>
+                  <div className="hb-card-meta">
+                    <Tag color={filter.isActive ? 'success' : 'default'} style={{ margin: 0 }}>
+                      {filter.isActive ? 'Active' : 'Đang tắt'}
+                    </Tag>
+                    <span>Thứ tự #{filter.displayOrder}</span>
+                  </div>
+                </div>
+
+                <div className="hb-card-actions">
+                  <Button type="text" size="small" icon={<EditOutlined />} onClick={() => handleOpenModal(filter)}>
+                    Chỉnh sửa
+                  </Button>
+                  <Popconfirm
+                    title={`Xóa bộ lọc '${filter.name}'?`}
+                    description="File LUT/texture và cấu hình sẽ bị xóa. Không thể hoàn tác."
+                    onConfirm={() => handleDelete(filter.id)}
+                    okText="Xóa"
+                    cancelText="Hủy"
+                    okButtonProps={{ danger: true }}
+                  >
+                    <Button type="text" size="small" danger icon={<DeleteOutlined />}>
+                      Xóa
+                    </Button>
+                  </Popconfirm>
+                </div>
+              </div>
             );
           })}
-        </Row>
+        </div>
       )}
 
-      {/* Modal Thêm / Chỉnh Sửa Filter */}
+      {/* Modal thêm / chỉnh sửa bộ lọc */}
       <Modal
-        title={editingFilter ? `Sửa Bộ Lọc: ${editingFilter.name}` : 'Thêm Bộ Lọc Màu Mới'}
+        title={editingFilter ? `Chỉnh Sửa Bộ Lọc: ${editingFilter.name}` : 'Thêm Bộ Lọc Mới'}
         open={isModalOpen}
         onOk={handleSave}
         confirmLoading={submitting}
-        onCancel={() => setIsModalOpen(false)}
+        onCancel={handleCloseModal}
         okText="Lưu Bộ Lọc"
         cancelText="Hủy"
-        width={720}
-        destroyOnClose
+        width={860}
+        forceRender
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <Form.Item
-              name="code"
-              label="Mã Bộ Lọc (Code Key)"
-              rules={[{ required: true, message: 'Nhập mã code duy nhất (vd: fuji_film)' }]}
-            >
-              <Input placeholder="ví dụ: fuji_pro_400h" disabled={!!editingFilter} />
-            </Form.Item>
-
-            <Form.Item
-              name="name"
-              label="Tên Hiển Thị Trên Kiosk"
-              rules={[{ required: true, message: 'Vui lòng nhập tên bộ lọc' }]}
-            >
-              <Input placeholder="ví dụ: Tone Phim Fuji Hoài Niệm" />
-            </Form.Item>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <Form.Item name="category" label="Danh mục phân loại">
-              <Select
-                options={[
-                  { label: 'General (Mặc định)', value: 'General' },
-                  { label: 'Film (Tone màu phim)', value: 'Film' },
-                  { label: 'Black & White (Đen trắng)', value: 'Black & White' },
-                  { label: 'Natural (Trong trẻo, mịn da)', value: 'Natural' },
-                  { label: 'Vintage (Hoài niệm, ấm)', value: 'Vintage' },
-                ]}
-              />
-            </Form.Item>
-
-            <Form.Item name="type" label="Loại Bộ Lọc">
-              <Radio.Group
-                onChange={(e) => setFilterType(e.target.value)}
-                value={filterType}
-              >
-                <Radio.Button value="LUT">3D LUT PNG (Studio)</Radio.Button>
-                <Radio.Button value="Preset">Tham Số (Preset)</Radio.Button>
-              </Radio.Group>
-            </Form.Item>
-          </div>
-
-          {filterType === 'LUT' && (
-            <Form.Item
-              label="File Ảnh 3D LUT PNG (Chuẩn Neutral HALD)"
-              required={!editingFilter}
-              tooltip="File ảnh PNG 512x512 hoặc 256x16 chứa bảng tra cứu màu sắc xuất từ Photoshop / Lightroom"
-            >
-              <Upload.Dragger
-                accept=".png,image/png,.cube"
-                fileList={lutFileList}
-                beforeUpload={(file) => {
-                  setLutFileList([file]);
-                  return false;
-                }}
-                onRemove={() => setLutFileList([])}
-                maxCount={1}
-              >
-                <p className="ant-upload-drag-icon">
-                  <InboxOutlined style={{ color: '#f86fa5', fontSize: 36 }} />
-                </p>
-                <p className="ant-upload-text">Kéo thả file LUT PNG vào đây để tải lên</p>
-                <p className="ant-upload-hint">Được lưu trực tiếp vào Cloudflare R2 / Local Storage</p>
-              </Upload.Dragger>
-            </Form.Item>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
-            <Form.Item
-              name="intensityDefault"
-              label={`Độ Đậm Mặc Định (Intensity): ${intensityValue}%`}
-            >
-              <Slider
-                min={10}
-                max={100}
-                value={intensityValue}
-                onChange={(val) => setIntensityValue(val)}
-              />
-            </Form.Item>
-
-            <Form.Item name="displayOrder" label="Thứ tự hiển thị">
-              <InputNumber style={{ width: '100%' }} min={0} />
-            </Form.Item>
-          </div>
-
-          {/* Live Preview Canvas */}
-          <Divider orientation="left" style={{ margin: '12px 0', fontSize: 13, color: '#f86fa5' }}>
-            Xem Trước Trên Ảnh Chân Dung Mẫu (Live Preview)
-          </Divider>
-          <div style={{ display: 'flex', gap: 20, alignItems: 'center', background: '#f8fafc', padding: 12, borderRadius: 8 }}>
-            <canvas
-              ref={canvasRef}
-              style={{
-                width: 120,
-                height: 160,
-                borderRadius: 6,
-                border: '1px solid #cbd5e1',
-                objectFit: 'cover',
-              }}
-            />
-            <div>
-              <Text strong style={{ fontSize: 13 }}>Hiển thị mô phỏng trực quan</Text>
-              <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-                Khi áp dụng lên máy Kiosk, màu sắc của ảnh chụp sẽ được GPU Shader tính toán nội suy theo mức độ <b>{intensityValue}%</b> này.
-              </div>
+        <Row gutter={24} style={{ marginTop: 12 }}>
+          <Col xs={24} md={9}>
+            <FilterCompare look={modalLook} />
+            <div className="hb-hint" style={{ marginTop: 8, textAlign: 'center' }}>
+              Kéo vạch chia để so sánh trước / sau trên ảnh mẫu.
             </div>
-          </div>
+          </Col>
 
-          <div style={{ marginTop: 16 }}>
-            <Form.Item name="isActive" label="Kích hoạt trên Kiosk ngay" valuePropName="checked">
-              <Switch checkedChildren="Bật" unCheckedChildren="Tắt" />
-            </Form.Item>
-          </div>
-        </Form>
+          <Col xs={24} md={15}>
+            <Form form={form} layout="vertical" requiredMark={false}>
+              <Row gutter={12}>
+                <Col span={14}>
+                  <Form.Item
+                    name="name"
+                    label="Tên hiển thị"
+                    rules={[{ required: true, whitespace: true, message: 'Vui lòng nhập tên bộ lọc' }]}
+                  >
+                    <Input placeholder="ví dụ: Warm Golden" maxLength={100} />
+                  </Form.Item>
+                </Col>
+                <Col span={10}>
+                  <Form.Item
+                    name="code"
+                    label="Mã bộ lọc"
+                    tooltip="Mã duy nhất, không đổi được sau khi tạo."
+                    rules={[
+                      { required: true, whitespace: true, message: 'Nhập mã (vd: warm_golden)' },
+                      { pattern: /^[A-Za-z0-9_ -]+$/, message: 'Chỉ dùng chữ, số, gạch dưới' },
+                      { max: 50, message: 'Tối đa 50 ký tự' },
+                    ]}
+                  >
+                    <Input placeholder="warm_golden" disabled={!!editingFilter} />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={12}>
+                <Col span={12}>
+                  <Form.Item name="category" label="Danh mục">
+                    <Select options={CATEGORY_OPTIONS} />
+                  </Form.Item>
+                </Col>
+                <Col span={6}>
+                  <Form.Item name="displayOrder" label="Thứ tự">
+                    <InputNumber style={{ width: '100%' }} min={0} precision={0} />
+                  </Form.Item>
+                </Col>
+                <Col span={6}>
+                  <Form.Item name="isActive" label="Trạng thái" valuePropName="checked">
+                    <Switch checkedChildren="Bật" unCheckedChildren="Tắt" />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </Form>
+
+            <Segmented<FilterMode>
+              block
+              value={mode}
+              onChange={setMode}
+              options={[
+                { label: 'Bộ lọc CSS (7 thanh trượt)', value: 'css' },
+                { label: 'Texture / 3D LUT Overlay', value: 'texture' },
+              ]}
+              style={{ marginBottom: 14 }}
+            />
+
+            {mode === 'css' ? (
+              <div>
+                {CSS_SLIDERS.map((spec) => (
+                  <div key={spec.key} className="filter-slider-row">
+                    <label htmlFor={`css-${spec.key}`} style={{ fontSize: 13 }}>
+                      {spec.label}
+                    </label>
+                    <Slider
+                      id={`css-${spec.key}`}
+                      min={spec.min}
+                      max={spec.max}
+                      step={spec.step}
+                      value={cssValues[spec.key]}
+                      onChange={(val) => setCssValues((prev) => ({ ...prev, [spec.key]: val }))}
+                      tooltip={{ formatter: (val) => `${val}${spec.unit}` }}
+                    />
+                    <span className="filter-slider-value">
+                      {cssValues[spec.key]}
+                      {spec.unit}
+                    </span>
+                  </div>
+                ))}
+                <Button
+                  size="small"
+                  icon={<UndoOutlined />}
+                  disabled={cssIsDefault}
+                  onClick={() => setCssValues(DEFAULT_CSS_VALUES)}
+                  style={{ marginTop: 6 }}
+                >
+                  Đặt lại mặc định
+                </Button>
+              </div>
+            ) : (
+              <div>
+                <Upload.Dragger
+                  accept=".cube,.png,image/png"
+                  maxCount={1}
+                  fileList={
+                    pendingAsset
+                      ? [{ uid: 'pending-asset', name: pendingAsset.file.name, status: 'done' as const }]
+                      : []
+                  }
+                  beforeUpload={(file) => {
+                    handlePickAsset(file);
+                    return false;
+                  }}
+                  onRemove={clearPendingAsset}
+                  style={{ padding: '4px 0' }}
+                >
+                  <p className="ant-upload-drag-icon" style={{ marginBottom: 8 }}>
+                    <InboxOutlined style={{ fontSize: 30 }} />
+                  </p>
+                  <p className="ant-upload-text" style={{ fontSize: 14 }}>
+                    Kéo thả file 3D LUT <b>.cube</b> hoặc texture <b>.png</b>
+                  </p>
+                  <p className="ant-upload-hint" style={{ fontSize: 12 }}>
+                    {savedAssetName && !pendingAsset
+                      ? `Đang dùng: ${savedAssetName}. Chọn file mới để thay thế.`
+                      : 'Tối đa 20 MB.'}
+                  </p>
+                </Upload.Dragger>
+
+                <div className="filter-slider-row" style={{ marginTop: 14 }}>
+                  <label htmlFor="texture-opacity" style={{ fontSize: 13 }}>
+                    {activeAssetIsCube ? 'Cường độ' : 'Opacity'}
+                  </label>
+                  <Slider
+                    id="texture-opacity"
+                    min={0}
+                    max={100}
+                    value={textureValues.opacity}
+                    onChange={(val) => setTextureValues((prev) => ({ ...prev, opacity: val }))}
+                    tooltip={{ formatter: (val) => `${val}%` }}
+                  />
+                  <span className="filter-slider-value">{textureValues.opacity}%</span>
+                </div>
+
+                <div className="filter-slider-row" style={{ marginTop: 8, gridTemplateColumns: '96px 1fr' }}>
+                  <label htmlFor="texture-blend" style={{ fontSize: 13 }}>
+                    Blend Mode
+                  </label>
+                  <Select<BlendMode>
+                    id="texture-blend"
+                    value={textureValues.blendMode}
+                    onChange={(val) => setTextureValues((prev) => ({ ...prev, blendMode: val }))}
+                    options={BLEND_MODES}
+                    disabled={activeAssetIsCube}
+                  />
+                </div>
+                {activeAssetIsCube && (
+                  <div className="hb-hint" style={{ marginTop: 6 }}>
+                    File .cube biến đổi màu trực tiếp nên không dùng blend mode; thanh trên điều chỉnh cường độ.
+                  </div>
+                )}
+              </div>
+            )}
+          </Col>
+        </Row>
       </Modal>
     </div>
   );

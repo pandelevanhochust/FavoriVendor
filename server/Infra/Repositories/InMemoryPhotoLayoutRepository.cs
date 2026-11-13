@@ -25,6 +25,7 @@ public class InMemoryPhotoLayoutRepository : IPhotoLayoutRepository
                 Description = "Khổ dải film dọc 4 ảnh cổ điển",
                 DisplayOrder = 1,
                 IsActive = true,
+                IsSplit = true,
                 PricingTiersJson = "[{\"quantity\":2,\"price\":70000},{\"quantity\":4,\"price\":100000}]"
             },
             new PhotoLayout

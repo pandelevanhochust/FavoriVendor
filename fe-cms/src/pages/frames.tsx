@@ -18,7 +18,6 @@ import {
   Popconfirm,
   Spin,
   Empty,
-  Tooltip,
   Alert,
   Tabs,
   Badge,
@@ -26,26 +25,23 @@ import {
 import {
   PlusOutlined,
   UploadOutlined,
-  EyeOutlined,
   DeleteOutlined,
   ReloadOutlined,
   InboxOutlined,
   CheckCircleOutlined,
-  ScanOutlined,
   FileTextOutlined,
   PictureOutlined,
   EditOutlined,
   SaveOutlined,
   SearchOutlined,
-  AppstoreOutlined,
-  BgColorsOutlined,
+  AimOutlined,
+  PoweroffOutlined,
 } from '@ant-design/icons';
 import { useRouter } from 'next/router';
 import {
   PhotoFrame,
   PhotoLayout,
   PhotoCategory,
-  HoleRect,
   getFrames,
   getLayouts,
   getCategories,
@@ -57,12 +53,92 @@ import {
 import {
   detectTransparentHoles,
   parseTemplateXml,
-  generatePresetHoles,
   DetectedHole,
 } from '../utils/frameDetector';
 import VisualHoleEditor from '../components/frames/VisualHoleEditor';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
+
+const BULK_CONCURRENCY = 4;
+
+const errorMessage = (err: any, fallback: string) =>
+  err?.response?.data?.message || err?.response?.data?.error || fallback;
+
+type FrameMeta = Pick<PhotoFrame, 'layoutId' | 'name' | 'categoryId' | 'displayOrder' | 'isActive'>;
+
+/**
+ * FormData đầy đủ cho PUT /api/frames/{id}. Backend ghi đè categoryId, displayOrder và isActive
+ * bằng mặc định nếu thiếu, nên mọi lần cập nhật đều phải gửi lại toàn bộ metadata.
+ * Không truyền holes = giữ nguyên toạ độ lỗ.
+ */
+function buildFrameFormData(meta: FrameMeta, holes?: DetectedHole[]): FormData {
+  const formData = new FormData();
+  formData.append('layoutId', meta.layoutId);
+  formData.append('name', meta.name);
+  if (meta.categoryId != null) formData.append('categoryId', meta.categoryId.toString());
+  formData.append('displayOrder', (meta.displayOrder ?? 0).toString());
+  formData.append('isActive', meta.isActive.toString());
+  if (holes) formData.append('holesJson', JSON.stringify(holes));
+  return formData;
+}
+
+/** Ảnh frame thu nhỏ kèm vùng lỗ lồng ảnh, vẽ theo hệ toạ độ pixel của khổ in. */
+const FrameHolePreview: React.FC<{ frame: PhotoFrame; width: number; height: number }> = ({
+  frame,
+  width,
+  height,
+}) => {
+  const holes = frame.holes || [];
+  const stroke = Math.max(width, height) / 220;
+  const fontSize = Math.max(width, height) / 22;
+  const rotate = (h: DetectedHole) =>
+    h.rotation ? `rotate(${h.rotation} ${h.x + h.w / 2} ${h.y + h.h / 2})` : undefined;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={frame.name}>
+      {holes.map((h, i) => (
+        <rect
+          key={`fill-${i}`}
+          x={h.x}
+          y={h.y}
+          width={h.w}
+          height={h.h}
+          transform={rotate(h)}
+          fill="rgba(248,111,165,0.4)"
+        />
+      ))}
+      <image href={resolveAssetUrl(frame.frameUrl)} width={width} height={height} preserveAspectRatio="none" />
+      {holes.map((h, i) => (
+        <g key={`mark-${i}`} transform={rotate(h)}>
+          <rect
+            x={h.x}
+            y={h.y}
+            width={h.w}
+            height={h.h}
+            fill="none"
+            stroke="#f86fa5"
+            strokeWidth={stroke}
+            strokeDasharray={`${stroke * 4} ${stroke * 3}`}
+          />
+          <text
+            x={h.x + h.w / 2}
+            y={h.y + h.h / 2}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize={fontSize}
+            fontWeight={700}
+            fill="#ffffff"
+            stroke="#be185d"
+            strokeWidth={stroke / 2}
+            paintOrder="stroke"
+          >
+            {i + 1}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+};
 
 export default function FramesPage() {
   const router = useRouter();
@@ -94,6 +170,14 @@ export default function FramesPage() {
   const [editingHoles, setEditingHoles] = useState<DetectedHole[]>([]);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
+  // Bulk toggle + metadata edit modal
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [metaFrame, setMetaFrame] = useState<PhotoFrame | null>(null);
+  const [metaFile, setMetaFile] = useState<File | null>(null);
+  const [isSavingMeta, setIsSavingMeta] = useState(false);
+  const [metaForm] = Form.useForm();
+
   const loadAll = async () => {
     setLoading(true);
     try {
@@ -107,7 +191,7 @@ export default function FramesPage() {
       setCategories(cData);
     } catch (err: any) {
       console.error(err);
-      message.error(err?.response?.data?.message || 'Không thể tải danh sách khung ảnh.');
+      message.error(errorMessage(err, 'Không thể tải danh sách khung ảnh.'));
     } finally {
       setLoading(false);
     }
@@ -285,14 +369,28 @@ export default function FramesPage() {
         formData.append('xmlFile', selectedXmlFile);
       }
 
-      await createFrame(formData);
-      message.success('Đã tạo và lưu khung ảnh thành công!');
+      const created = await createFrame(formData);
       setIsUploadModalOpen(false);
       loadAll();
+
+      // Mở ngay trình sửa toạ độ nếu số lỗ nhận diện được chưa khớp với khổ ảnh
+      const createdHoles = created.holes || [];
+      const expected = layouts.find((l) => l.id.toLowerCase() === created.layoutId.toLowerCase())?.holeCount;
+      const needsReview = createdHoles.length === 0 || (expected != null && createdHoles.length !== expected);
+      if (needsReview) {
+        message.warning(
+          createdHoles.length === 0
+            ? 'Đã lưu frame nhưng chưa có toạ độ lỗ. Hãy đặt các ô lồng ảnh.'
+            : `Đã lưu frame với ${createdHoles.length} lỗ, khổ ${created.layoutId} cần ${expected}. Hãy kiểm tra lại.`
+        );
+        handleOpenEditHoles(created);
+      } else {
+        message.success('Đã tạo và lưu khung ảnh thành công!');
+      }
     } catch (err: any) {
       if (err?.errorFields) return;
       console.error(err);
-      message.error(err?.response?.data?.message || 'Lỗi khi tải khung ảnh lên máy chủ.');
+      message.error(errorMessage(err, 'Lỗi khi tải khung ảnh lên máy chủ.'));
     } finally {
       setSubmitting(false);
     }
@@ -309,21 +407,13 @@ export default function FramesPage() {
     if (!editingFrame) return;
     try {
       setIsSavingEdit(true);
-      const formData = new FormData();
-      formData.append('layoutId', editingFrame.layoutId);
-      formData.append('name', editingFrame.name);
-      if (editingFrame.categoryId) formData.append('categoryId', editingFrame.categoryId.toString());
-      formData.append('holesJson', JSON.stringify(editingHoles));
-      formData.append('displayOrder', editingFrame.displayOrder.toString());
-      formData.append('isActive', editingFrame.isActive.toString());
-
-      await updateFrame(editingFrame.id, formData);
+      await updateFrame(editingFrame.id, buildFrameFormData(editingFrame, editingHoles));
       message.success(`Đã cập nhật tọa độ cho khung '${editingFrame.name}' thành công!`);
       setEditingFrame(null);
       loadAll();
     } catch (err: any) {
       console.error(err);
-      message.error(err?.response?.data?.message || 'Không thể lưu tọa độ mới.');
+      message.error(errorMessage(err, 'Không thể lưu tọa độ mới.'));
     } finally {
       setIsSavingEdit(false);
     }
@@ -336,47 +426,128 @@ export default function FramesPage() {
       loadAll();
     } catch (err: any) {
       console.error(err);
-      message.error(err?.response?.data?.message || 'Không thể xoá khung ảnh.');
+      message.error(errorMessage(err, 'Không thể xoá khung ảnh.'));
     }
   };
 
   const handleToggleFrameActive = async (frame: PhotoFrame, checked: boolean) => {
+    setTogglingId(frame.id);
     try {
-      const formData = new FormData();
-      formData.append('layoutId', frame.layoutId);
-      formData.append('name', frame.name);
-      formData.append('isActive', checked.toString());
-      await updateFrame(frame.id, formData);
+      await updateFrame(frame.id, buildFrameFormData({ ...frame, isActive: checked }));
+      setFrames((prev) => prev.map((f) => (f.id === frame.id ? { ...f, isActive: checked } : f)));
       message.success(`Đã ${checked ? 'bật' : 'tắt'} khung ${frame.name}!`);
-      loadAll();
+    } catch (err: any) {
+      console.error(err);
+      message.error(errorMessage(err, 'Không thể cập nhật trạng thái khung.'));
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  // Bật/tắt hàng loạt các frame đang hiển thị theo bộ lọc hiện tại
+  const allVisibleActive = filteredFrames.length > 0 && filteredFrames.every((f) => f.isActive);
+  const bulkNextState = !allVisibleActive;
+  const bulkTargets = filteredFrames.filter((f) => f.isActive !== bulkNextState);
+
+  const handleBulkToggle = async () => {
+    if (bulkTargets.length === 0) return;
+    setBulkBusy(true);
+    const succeeded = new Set<number>();
+    let failed = 0;
+    try {
+      for (let i = 0; i < bulkTargets.length; i += BULK_CONCURRENCY) {
+        const batch = bulkTargets.slice(i, i + BULK_CONCURRENCY);
+        const results = await Promise.allSettled(
+          batch.map((f) => updateFrame(f.id, buildFrameFormData({ ...f, isActive: bulkNextState })))
+        );
+        results.forEach((r, idx) => {
+          if (r.status === 'fulfilled') succeeded.add(batch[idx].id);
+          else {
+            failed += 1;
+            console.error(r.reason);
+          }
+        });
+      }
+      setFrames((prev) => prev.map((f) => (succeeded.has(f.id) ? { ...f, isActive: bulkNextState } : f)));
+      const verb = bulkNextState ? 'bật' : 'tắt';
+      if (failed === 0) message.success(`Đã ${verb} ${succeeded.size} khung.`);
+      else message.warning(`Đã ${verb} ${succeeded.size} khung, ${failed} khung cập nhật thất bại.`);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const handleOpenEditMeta = (frame: PhotoFrame) => {
+    setMetaFrame(frame);
+    setMetaFile(null);
+    metaForm.setFieldsValue({
+      name: frame.name,
+      layoutId: frame.layoutId,
+      categoryId: frame.categoryId ?? undefined,
+      displayOrder: frame.displayOrder,
+      isActive: frame.isActive,
+    });
+  };
+
+  const handleSaveMeta = async () => {
+    if (!metaFrame) return;
+    let vals: any;
+    try {
+      vals = await metaForm.validateFields();
     } catch {
-      message.error('Không thể cập nhật trạng thái khung.');
+      return;
+    }
+    setIsSavingMeta(true);
+    try {
+      const formData = buildFrameFormData({
+        name: vals.name.trim(),
+        layoutId: vals.layoutId,
+        categoryId: vals.categoryId ?? undefined,
+        displayOrder: vals.displayOrder ?? 0,
+        isActive: !!vals.isActive,
+      });
+      if (metaFile) formData.append('file', metaFile);
+      await updateFrame(metaFrame.id, formData);
+      message.success(`Đã cập nhật khung '${vals.name.trim()}'.`);
+      setMetaFrame(null);
+      loadAll();
+    } catch (err: any) {
+      console.error(err);
+      message.error(errorMessage(err, 'Không thể cập nhật khung ảnh.'));
+    } finally {
+      setIsSavingMeta(false);
     }
   };
 
   return (
     <div>
       {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div className="hb-page-header" style={{ marginBottom: 16 }}>
         <div>
-          <Title level={4} style={{ margin: 0, color: '#0f172a' }}>
-            Kho Khung Ảnh & Tọa Độ Lồng Ảnh (Frames)
-          </Title>
-          <Text style={{ fontSize: 13, color: '#64748b' }}>
-            Quản lý viền khung PNG, định vị lỗ đục lồng ảnh (Holes) và dựng khung trực quan theo chuẩn HiHiBooth CMS
-          </Text>
+          <h1 className="hb-page-title">Quản Lý Khung Ảnh (Frames)</h1>
+          <div className="hb-page-subtitle">
+            Quản lý viền khung PNG theo khổ ảnh và danh mục, bật/tắt hàng loạt và chỉnh toạ độ lỗ lồng ảnh.
+          </div>
         </div>
-        <Space>
+        <Space wrap>
           <Button icon={<ReloadOutlined />} onClick={loadAll} loading={loading}>
             Làm mới
           </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            style={{ background: '#f86fa5', borderColor: '#f86fa5', borderRadius: 8 }}
-            onClick={handleOpenUpload}
+          <Popconfirm
+            title={`${bulkNextState ? 'Bật' : 'Tắt'} ${bulkTargets.length} khung đang hiển thị?`}
+            description="Áp dụng cho các khung khớp tab, danh mục và từ khoá hiện tại."
+            onConfirm={handleBulkToggle}
+            okText={bulkNextState ? 'Bật tất cả' : 'Tắt tất cả'}
+            cancelText="Hủy"
+            okButtonProps={{ danger: !bulkNextState }}
+            disabled={bulkTargets.length === 0}
           >
-            Tạo Khung Mới
+            <Button icon={<PoweroffOutlined />} loading={bulkBusy} disabled={bulkTargets.length === 0}>
+              {bulkNextState ? 'Bật Tất Cả' : 'Tắt Tất Cả'}
+            </Button>
+          </Popconfirm>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenUpload}>
+            Tải Lên Frame Mới
           </Button>
         </Space>
       </div>
@@ -400,7 +571,7 @@ export default function FramesPage() {
               key: 'all',
               label: (
                 <Space>
-                  <span>Tất cả các khổ</span>
+                  <span>Tất cả</span>
                   <Badge count={frames.length} style={{ backgroundColor: '#94a3b8' }} />
                 </Space>
               ),
@@ -442,11 +613,11 @@ export default function FramesPage() {
           <Col xs={24} md={8}>
             <Space align="center" style={{ width: '100%' }}>
               <span style={{ fontSize: 13, fontWeight: 500, color: '#475569', whiteSpace: 'nowrap' }}>
-                Lọc Chủ Đề:
+                Danh mục:
               </span>
               <Select
                 style={{ minWidth: 200 }}
-                placeholder="Tất cả chủ đề / danh mục"
+                placeholder="Tất cả danh mục"
                 allowClear
                 value={filterCategory}
                 onChange={(val) => setFilterCategory(val)}
@@ -457,146 +628,190 @@ export default function FramesPage() {
           <Col xs={24} md={8} style={{ textAlign: 'right' }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
               Hiển thị <b>{filteredFrames.length}</b> / {frames.length} khung ảnh
+              {filteredFrames.length > 0 && (
+                <> · <b>{filteredFrames.filter((f) => f.isActive).length}</b> đang bật</>
+              )}
             </Text>
           </Col>
         </Row>
       </Card>
 
       {/* Frame Cards Grid */}
-      {loading ? (
+      {loading && frames.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
       ) : filteredFrames.length === 0 ? (
-        <Card style={{ borderRadius: 12, textAlign: 'center', padding: 40, border: 'none', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-          <Empty description="Không tìm thấy khung ảnh nào phù hợp. Hãy nhấn 'Tạo Khung Mới' để thêm từ PNG hoặc kho template.xml!" />
-        </Card>
+        <div className="hb-card" style={{ textAlign: 'center', padding: 40 }}>
+          <Empty
+            description={
+              frames.length === 0
+                ? "Chưa có khung ảnh nào. Nhấn 'Tải Lên Frame Mới' để thêm từ PNG hoặc template.xml."
+                : 'Không có khung ảnh nào khớp bộ lọc hiện tại.'
+            }
+          />
+        </div>
       ) : (
         <Row gutter={[20, 20]}>
           {filteredFrames.map((frame) => {
-            const fullUrl = resolveAssetUrl(frame.frameUrl);
             const holeCount = frame.holes?.length || 0;
             const targetLayout = layouts.find((l) => l.id.toLowerCase() === frame.layoutId.toLowerCase());
-            const isTallStrip = frame.layoutId.toLowerCase() === '1x4' || frame.layoutId.toLowerCase() === '2x6';
+            const canvasW = targetLayout?.widthPx || 2400;
+            const canvasH = targetLayout?.heightPx || 3600;
+            const holeMismatch = targetLayout != null && holeCount !== targetLayout.holeCount;
 
             return (
               <Col xs={24} sm={12} md={8} lg={6} key={frame.id}>
-                <Card
-                  hoverable
-                  style={{
-                    borderRadius: 12,
-                    overflow: 'hidden',
-                    border: '1px solid #f1f5f9',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-                  }}
-                  cover={
-                    <div
-                      style={{
-                        height: 280,
-                        backgroundColor: '#1e293b',
-                        backgroundImage:
-                          'linear-gradient(45deg, #0f172a 25%, transparent 25%), linear-gradient(-45deg, #0f172a 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #0f172a 75%), linear-gradient(-45deg, transparent 75%, #0f172a 75%)',
-                        backgroundSize: '16px 16px',
-                        backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        position: 'relative',
-                        padding: 12,
-                        cursor: 'pointer',
-                      }}
-                      onClick={() => handleOpenEditHoles(frame)}
-                      title="Bấm để xem và sửa tọa độ các ô lồng ảnh"
-                    >
-                      {/* Frame image preview on transparency checkerboard */}
-                      <img
-                        alt={frame.name}
-                        src={fullUrl}
-                        style={{
-                          maxHeight: '100%',
-                          maxWidth: '100%',
-                          objectFit: 'contain',
-                          filter: 'drop-shadow(0 8px 12px rgba(0,0,0,0.3))',
-                          transition: 'transform 0.2s',
-                        }}
-                      />
-                      <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', gap: 4 }}>
-                        <Tag color="magenta" style={{ margin: 0, fontWeight: 700 }}>
-                          {frame.layoutId}
-                        </Tag>
-                        {frame.categoryName && (
-                          <Tag color="blue" style={{ margin: 0 }}>
-                            {frame.categoryName}
-                          </Tag>
-                        )}
-                      </div>
-                      <div style={{ position: 'absolute', top: 10, right: 10 }}>
-                        <Switch
-                          size="small"
-                          checked={frame.isActive}
-                          onChange={(checked) => handleToggleFrameActive(frame, checked)}
-                          onClick={(_, e) => e.stopPropagation()}
-                        />
-                      </div>
+                <div className={`hb-hover-card${frame.isActive ? '' : ' is-inactive'}`}>
+                  <div
+                    className="frame-card-media hb-checkerboard"
+                    onClick={() => handleOpenEditHoles(frame)}
+                    title="Bấm để xem và sửa toạ độ các ô lồng ảnh"
+                  >
+                    <div className="hb-card-media" style={{ width: '100%', height: '100%' }}>
+                      <FrameHolePreview frame={frame} width={canvasW} height={canvasH} />
                     </div>
-                  }
-                  actions={[
-                    <Tooltip title="Xem chi tiết và chỉnh sửa tọa độ ô lồng">
-                      <Button
-                        type="text"
-                        icon={<EyeOutlined />}
-                        onClick={() => handleOpenEditHoles(frame)}
-                        style={{ color: '#0284c7', fontWeight: 600 }}
+                    <div className="hb-card-badges">
+                      <Tag color="magenta" style={{ margin: 0, fontWeight: 700 }}>
+                        {frame.layoutId}
+                      </Tag>
+                      {frame.categoryName && (
+                        <Tag color="blue" style={{ margin: 0 }}>
+                          {frame.categoryName}
+                        </Tag>
+                      )}
+                    </div>
+                    <div className="hb-card-switch">
+                      <Switch
+                        size="small"
+                        checked={frame.isActive}
+                        loading={togglingId === frame.id}
+                        aria-label={`Bật/tắt khung ${frame.name}`}
+                        onChange={(checked) => handleToggleFrameActive(frame, checked)}
+                        onClick={(_, e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="hb-card-body">
+                    <div className="hb-card-name" title={frame.name}>
+                      {frame.name}
+                    </div>
+                    <div className="hb-card-meta">
+                      <Tag
+                        color={holeCount === 0 ? 'error' : holeMismatch ? 'warning' : 'success'}
+                        style={{ margin: 0 }}
                       >
-                        Holes ({holeCount})
-                      </Button>
-                    </Tooltip>,
-                    <Tooltip title="Mở Visual Frame Builder">
-                      <Button
-                        type="text"
-                        icon={<EditOutlined />}
-                        onClick={() => handleOpenEditHoles(frame)}
-                        style={{ color: '#f86fa5' }}
-                      >
-                        Sửa Tọa Độ
-                      </Button>
-                    </Tooltip>,
+                        {holeCount === 0 ? 'Chưa có toạ độ lỗ' : `${holeCount} toạ độ lỗ`}
+                      </Tag>
+                      <span>{canvasW}x{canvasH} px</span>
+                    </div>
+                  </div>
+
+                  <div className="hb-card-actions">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<AimOutlined />}
+                      onClick={() => handleOpenEditHoles(frame)}
+                      style={{ color: '#ec4899' }}
+                    >
+                      Sửa toạ độ lỗ
+                    </Button>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<EditOutlined />}
+                      onClick={() => handleOpenEditMeta(frame)}
+                    >
+                      Sửa
+                    </Button>
                     <Popconfirm
                       title="Xóa khung ảnh này?"
-                      description="Khung ảnh sẽ bị xóa khỏi hệ thống và lưu trữ R2!"
+                      description="Khung ảnh sẽ bị xóa khỏi hệ thống và kho lưu trữ. Không thể hoàn tác."
                       onConfirm={() => handleDeleteFrame(frame.id)}
                       okText="Xóa"
                       cancelText="Hủy"
                       okButtonProps={{ danger: true }}
                     >
-                      <Button type="text" danger icon={<DeleteOutlined />}>
+                      <Button type="text" size="small" danger icon={<DeleteOutlined />}>
                         Xóa
                       </Button>
-                    </Popconfirm>,
-                  ]}
-                >
-                  <Card.Meta
-                    title={
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
-                          {frame.name}
-                        </span>
-                        <Tag color="purple" style={{ margin: 0, fontSize: 11 }}>
-                          #{frame.displayOrder}
-                        </Tag>
-                      </div>
-                    }
-                    description={
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginTop: 4 }}>
-                        <span>Khổ in: {targetLayout ? `${targetLayout.widthPx}x${targetLayout.heightPx}` : '2400x3600'}</span>
-                        <span>{new Date(frame.createdAt).toLocaleDateString('vi-VN')}</span>
-                      </div>
-                    }
-                  />
-                </Card>
+                    </Popconfirm>
+                  </div>
+                </div>
               </Col>
             );
           })}
         </Row>
       )}
+
+      {/* Frame metadata edit modal */}
+      <Modal
+        title={`Chỉnh Sửa Khung: ${metaFrame?.name ?? ''}`}
+        open={!!metaFrame}
+        onCancel={() => setMetaFrame(null)}
+        onOk={handleSaveMeta}
+        confirmLoading={isSavingMeta}
+        okText="Lưu thay đổi"
+        cancelText="Hủy"
+        width={560}
+        forceRender
+      >
+        <Form form={metaForm} layout="vertical" style={{ marginTop: 12 }}>
+          <Form.Item
+            name="name"
+            label="Tên khung ảnh"
+            rules={[{ required: true, whitespace: true, message: 'Vui lòng đặt tên cho khung ảnh' }]}
+          >
+            <Input maxLength={100} />
+          </Form.Item>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <Form.Item
+              name="layoutId"
+              label="Khổ ảnh (Layout)"
+              rules={[{ required: true, message: 'Vui lòng chọn khổ ảnh' }]}
+            >
+              <Select options={layouts.map((l) => ({ label: `${l.name} (${l.id})`, value: l.id }))} />
+            </Form.Item>
+            <Form.Item name="categoryId" label="Danh mục">
+              <Select
+                allowClear
+                placeholder="Không có danh mục"
+                options={categories.map((c) => ({ label: c.name, value: c.id }))}
+              />
+            </Form.Item>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <Form.Item name="displayOrder" label="Thứ tự hiển thị">
+              <InputNumber style={{ width: '100%' }} min={0} precision={0} />
+            </Form.Item>
+            <Form.Item name="isActive" label="Hiển thị trên Kiosk" valuePropName="checked">
+              <Switch checkedChildren="Bật" unCheckedChildren="Tắt" />
+            </Form.Item>
+          </div>
+          <Form.Item
+            label="Thay file PNG (tuỳ chọn)"
+            extra="Toạ độ lỗ hiện tại được giữ nguyên. Hãy kiểm tra lại bằng 'Sửa toạ độ lỗ' nếu bố cục thay đổi."
+            style={{ marginBottom: 0 }}
+          >
+            <Upload
+              accept=".png,image/png"
+              maxCount={1}
+              fileList={metaFile ? [{ uid: 'meta-file', name: metaFile.name, status: 'done' as const }] : []}
+              beforeUpload={(file) => {
+                if (!file.name.toLowerCase().endsWith('.png')) {
+                  message.error('Khung ảnh phải là file PNG trong suốt.');
+                  return false;
+                }
+                setMetaFile(file);
+                return false;
+              }}
+              onRemove={() => setMetaFile(null)}
+            >
+              <Button icon={<UploadOutlined />}>Chọn file PNG mới</Button>
+            </Upload>
+          </Form.Item>
+        </Form>
+      </Modal>
 
       {/* Visual Hole Editor & Inspector Modal for Existing Frame */}
       <Modal
@@ -618,7 +833,6 @@ export default function FramesPage() {
             key="save"
             type="primary"
             icon={<SaveOutlined />}
-            style={{ background: '#f86fa5', borderColor: '#f86fa5' }}
             loading={isSavingEdit}
             onClick={handleSaveEditedHoles}
           >
@@ -655,7 +869,7 @@ export default function FramesPage() {
 
       {/* Upload Frame & Builder Modal */}
       <Modal
-        title="Tạo Khung Ảnh Mới (Hỗ Trợ XML, Tự Quét Kênh Alpha & Visual Builder)"
+        title="Tải Lên Frame Mới (PNG, template.xml, tự quét vùng trong suốt)"
         open={isUploadModalOpen}
         onOk={handleUploadSubmit}
         confirmLoading={submitting}

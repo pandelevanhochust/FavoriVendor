@@ -9,19 +9,13 @@ export interface ApiResponse<T> {
   status: number;
 }
 
-export const DEFAULT_API_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'https://favorivendor.onrender.com';
+export const DEFAULT_API_URL = 'http://localhost:5000';
 export const DEFAULT_RENDER_URL = 'https://favorivendor.onrender.com';
 export const DEFAULT_LOCAL_URL = 'http://localhost:5000';
 
-// Render production key (matches Kiosk__ApiKey on Render & local.properties)
-export const DEFAULT_API_KEY =
-  process.env.NEXT_PUBLIC_KIOSK_API_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTZhQCIsIm5hbWUiOiJKb2huIERvZSIsImFkbWluIjp0cnVlLCJpYXQiOjE1MTYyMzkwMjJ9.lnpJO1qhiMkRIFA6hm6gwZLqKl6nMyGNI4igASILP0Q';
-
-// Fallback key (from server/appsettings.json)
-export const FALLBACK_API_KEY =
-  '3X0YiESk4Pi0Nmsc3MCq0BG66DCcdBul4LwjeuxRKnddVbcR';
+export const TOKEN_STORAGE_KEY = 'favori_access_token';
+export const DEFAULT_API_KEY = 'Bearer_JWT_Auth';
+export const FALLBACK_API_KEY = 'Bearer_JWT_Auth';
 
 export function getBaseApiUrl(): string {
   if (typeof window !== 'undefined') {
@@ -37,37 +31,89 @@ export function setBaseApiUrl(url: string): void {
   }
 }
 
-export function getApiKey(): string {
+export function getAccessToken(): string | null {
   if (typeof window !== 'undefined') {
-    const saved = localStorage.getItem('favori_api_key');
-    // If the saved key is the old 3X0Yi... key that triggered 401 on Render, auto-migrate to working key
-    if (saved && saved.trim() !== FALLBACK_API_KEY) {
-      return saved.trim();
-    }
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
   }
-  return DEFAULT_API_KEY;
+  return null;
+}
+
+export function setAccessToken(token: string): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  }
+}
+
+// Backward compatibility stubs
+export function getApiKey(): string {
+  return getAccessToken() || DEFAULT_API_KEY;
 }
 
 export function setApiKey(key: string): void {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('favori_api_key', key.trim());
+  if (key && key !== DEFAULT_API_KEY && key !== FALLBACK_API_KEY) {
+    setAccessToken(key);
   }
+}
+
+export async function loginApi(username = 'admin', password = 'admin'): Promise<{ accessToken: string } | null> {
+  const baseUrl = getBaseApiUrl();
+  try {
+    const res = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.accessToken) {
+        setAccessToken(data.accessToken);
+        return data;
+      }
+    }
+  } catch (e) {
+    console.warn('Auto-login failed:', e);
+  }
+  return null;
 }
 
 async function executeFetch(
   url: string,
   method: 'GET' | 'POST',
-  apiKey: string,
   body?: any
 ): Promise<Response> {
-  return fetch(url, {
+  let token = getAccessToken();
+  if (!token) {
+    const loginRes = await loginApi('admin', 'admin');
+    if (loginRes) token = loginRes.accessToken;
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  let res = await fetch(url, {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Api-Key': apiKey,
-    },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
+
+  // If 401 Unauthorized, refresh token via login and retry once
+  if (res.status === 401) {
+    const freshLogin = await loginApi('admin', 'admin');
+    if (freshLogin && freshLogin.accessToken) {
+      headers['Authorization'] = `Bearer ${freshLogin.accessToken}`;
+      res = await fetch(url, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    }
+  }
+
+  return res;
 }
 
 export const apiClient = {
@@ -76,8 +122,6 @@ export const apiClient = {
     params?: Record<string, string | number | undefined>
   ): Promise<ApiResponse<T>> => {
     const baseUrl = getBaseApiUrl();
-    let currentKey = getApiKey();
-
     const url = new URL(`${baseUrl}/${endpoint.replace(/^\/+/, '')}`);
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -88,19 +132,7 @@ export const apiClient = {
     }
 
     try {
-      let res = await executeFetch(url.toString(), 'GET', currentKey);
-
-      // Auto-healing: If 401 Unauthorized, retry with fallback key
-      if (res.status === 401) {
-        const altKey =
-          currentKey === DEFAULT_API_KEY ? FALLBACK_API_KEY : DEFAULT_API_KEY;
-        const retryRes = await executeFetch(url.toString(), 'GET', altKey);
-        if (retryRes.status !== 401) {
-          res = retryRes;
-          currentKey = altKey;
-          setApiKey(altKey);
-        }
-      }
+      const res = await executeFetch(url.toString(), 'GET');
 
       const totalCount = parseInt(res.headers.get('X-Total-Count') || '0', 10);
       const page = parseInt(res.headers.get('X-Page') || '1', 10);
@@ -140,22 +172,10 @@ export const apiClient = {
 
   post: async <T>(endpoint: string, body?: any): Promise<ApiResponse<T>> => {
     const baseUrl = getBaseApiUrl();
-    let currentKey = getApiKey();
     const fullUrl = `${baseUrl}/${endpoint.replace(/^\/+/, '')}`;
 
     try {
-      let res = await executeFetch(fullUrl, 'POST', currentKey, body);
-
-      if (res.status === 401) {
-        const altKey =
-          currentKey === DEFAULT_API_KEY ? FALLBACK_API_KEY : DEFAULT_API_KEY;
-        const retryRes = await executeFetch(fullUrl, 'POST', altKey, body);
-        if (retryRes.status !== 401) {
-          res = retryRes;
-          currentKey = altKey;
-          setApiKey(altKey);
-        }
-      }
+      const res = await executeFetch(fullUrl, 'POST', body);
 
       if (!res.ok) {
         const errorText = await res.text();

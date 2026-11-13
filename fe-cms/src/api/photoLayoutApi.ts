@@ -25,7 +25,17 @@ export interface PhotoLayout {
   displayOrder: number;
   pricingTiers: PricingTier[];
   frameCount?: number;
+  /** Số lần bấm máy (shots). Server trả về holeCount nếu chưa cấu hình. */
+  captureCount?: number;
+  /** In 2 dải trên một tờ và cắt đôi. */
+  isSplit?: boolean;
+  /** Tự tính số shots theo số lỗ của frame khách chọn. */
+  useHolesAutoCapture?: boolean;
+  /** "preset:<key>" (mẫu dựng sẵn) hoặc URL ảnh preview đã tải lên. Chuỗi rỗng = xoá. */
+  previewUrl?: string | null;
 }
+
+export type LayoutPayload = Omit<PhotoLayout, 'slug' | 'frameCount'> & { slug?: string };
 
 export interface PhotoCategory {
   id: number;
@@ -60,18 +70,7 @@ export async function getLayouts(onlyActive = false): Promise<PhotoLayout[]> {
   return res.data;
 }
 
-export async function createLayout(data: {
-  id: string;
-  name: string;
-  slug?: string;
-  widthPx: number;
-  heightPx: number;
-  holeCount: number;
-  description?: string;
-  isActive: boolean;
-  displayOrder: number;
-  pricingTiers: PricingTier[];
-}): Promise<PhotoLayout> {
+export async function createLayout(data: LayoutPayload): Promise<PhotoLayout> {
   const res = await apiClient.post<PhotoLayout>('/api/layouts', data);
   return res.data;
 }
@@ -81,6 +80,17 @@ export async function updateLayout(
   data: Partial<PhotoLayout>
 ): Promise<PhotoLayout> {
   const res = await apiClient.put<PhotoLayout>(`/api/layouts/${encodeURIComponent(id)}`, data);
+  return res.data;
+}
+
+export async function uploadLayoutPreview(id: string, file: File): Promise<PhotoLayout> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiClient.post<PhotoLayout>(
+    `/api/layouts/${encodeURIComponent(id)}/preview`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } }
+  );
   return res.data;
 }
 

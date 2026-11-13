@@ -100,6 +100,18 @@ BEGIN
         ""UpdatedAt"" TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    -- 4b. Cột mở rộng cho photo_layouts (shots, cắt đôi, preview) - chỉ thêm, không sửa dữ liệu cũ
+    ALTER TABLE public.photo_layouts ADD COLUMN IF NOT EXISTS ""CaptureCount"" INT NOT NULL DEFAULT 0;
+    ALTER TABLE public.photo_layouts ADD COLUMN IF NOT EXISTS ""UseHolesAutoCapture"" BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE public.photo_layouts ADD COLUMN IF NOT EXISTS ""PreviewUrl"" VARCHAR(500);
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'photo_layouts' AND column_name = 'IsSplit'
+    ) THEN
+        ALTER TABLE public.photo_layouts ADD COLUMN ""IsSplit"" BOOLEAN NOT NULL DEFAULT FALSE;
+        -- Các khổ dải film trước đây được ngầm hiểu là cắt đôi theo mã khổ
+        UPDATE public.photo_layouts SET ""IsSplit"" = TRUE WHERE LOWER(""Id"") IN ('1x4', '2x6');
+    END IF;
+
     CREATE INDEX IF NOT EXISTS ix_photo_layouts_is_active ON public.photo_layouts(""IsActive"");
     CREATE INDEX IF NOT EXISTS ix_photo_layouts_display_order ON public.photo_layouts(""DisplayOrder"");
 
@@ -257,6 +269,7 @@ END $$;
                         Description = "Khổ dải film dọc 4 ảnh cổ điển",
                         DisplayOrder = 1,
                         IsActive = true,
+                        IsSplit = true,
                         PricingTiersJson = "[{\"quantity\":2,\"price\":70000},{\"quantity\":4,\"price\":100000},{\"quantity\":6,\"price\":130000}]",
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow

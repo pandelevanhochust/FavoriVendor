@@ -91,6 +91,7 @@ public class AppDbContext : DbContext
             b.Property(l => l.Slug).HasMaxLength(100).IsRequired();
             b.Property(l => l.Description).HasMaxLength(500);
             b.Property(l => l.PricingTiersJson).HasColumnType("jsonb");
+            b.Property(l => l.PreviewUrl).HasMaxLength(500);
 
             b.HasIndex(l => l.Slug).IsUnique();
             b.HasIndex(l => l.IsActive);

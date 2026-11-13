@@ -12,6 +12,10 @@ public class PhotoLayout
     public bool IsActive { get; set; } = true;
     public int DisplayOrder { get; set; } = 0;
     public string? PricingTiersJson { get; set; } // JSON array: [{"quantity":2,"price":70000},{"quantity":4,"price":100000}]
+    public int CaptureCount { get; set; } = 0; // Số lần bấm máy (shots). 0 = bằng HoleCount
+    public bool IsSplit { get; set; } = false; // In 2 dải và cắt đôi tờ giấy
+    public bool UseHolesAutoCapture { get; set; } = false; // Tự tính số shots theo số lỗ của frame được chọn
+    public string? PreviewUrl { get; set; } // "preset:<key>" hoặc URL ảnh preview đã tải lên
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
