@@ -152,152 +152,151 @@ export function generatePresetHoles(layoutId: string, width = 2400, height = 360
 }
 
 /**
- * Tự động phát hiện các vùng trong suốt (Transparent Holes) từ file PNG viền khung
- * Thuật toán quét pixel Alpha < alphaThreshold và gom vùng bounding box (tương tự Tool_Create_Frame)
+ * Tự động phát hiện các ô trong suốt (holes) từ file PNG viền khung.
+ *
+ * Thuật toán (đối chiếu frameHoleDetector của HiHiBooth):
+ *  1. Thu nhỏ ảnh về cạnh dài tối đa 800px để quét nhanh.
+ *  2. Pixel có alpha < alphaThreshold được coi là trong suốt.
+ *  3. Gom các vùng trong suốt liền kề (4 lân cận) thành từng thành phần.
+ *  4. Bỏ vùng nhỏ hơn minAreaRatio diện tích ảnh và vùng chạm mép ảnh
+ *     (đó là nền trong suốt bên ngoài viền, không phải ô ảnh).
+ *  5. Quy đổi về toạ độ ảnh gốc và nới mỗi cạnh thêm ~1 pixel quét (bleed) để ảnh chụp
+ *     lấp kín dưới mép khung, không hở viền trắng do làm tròn khi thu nhỏ.
  */
 export async function detectTransparentHoles(
-  file: File,
+  file: File | Blob,
   options: {
     alphaThreshold?: number;
-    minAreaRatio?: number; // Tỉ lệ diện tích tối thiểu so với toàn ảnh (vd 0.01 = 1%)
+    /** Tỉ lệ diện tích tối thiểu so với toàn ảnh (0.005 = 0.5%) */
+    minAreaRatio?: number;
+    /** Cạnh dài tối đa khi quét */
+    maxScanSize?: number;
   } = {}
-): Promise<{ holes: DetectedHole[]; imageWidth: number; imageHeight: number }> {
-  const alphaThreshold = options.alphaThreshold ?? 20; // 0..255 (trong suốt)
-  const minAreaRatio = options.minAreaRatio ?? 0.015; // Tối thiểu 1.5% diện tích ảnh
+): Promise<{ holes: DetectedHole[]; imageWidth: number; imageHeight: number; ignoredEdgeRegions: number }> {
+  const alphaThreshold = options.alphaThreshold ?? 30;
+  const minAreaRatio = options.minAreaRatio ?? 0.005;
+  const maxScanSize = options.maxScanSize ?? 800;
 
+  const img = await loadImage(file);
+  const origW = img.naturalWidth || img.width;
+  const origH = img.naturalHeight || img.height;
+  if (!origW || !origH) return { holes: [], imageWidth: origW, imageHeight: origH, ignoredEdgeRegions: 0 };
+
+  const scale = Math.min(1, maxScanSize / Math.max(origW, origH));
+  const scanW = Math.max(1, Math.round(origW * scale));
+  const scanH = Math.max(1, Math.round(origH * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = scanW;
+  canvas.height = scanH;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return { holes: [], imageWidth: origW, imageHeight: origH, ignoredEdgeRegions: 0 };
+  ctx.clearRect(0, 0, scanW, scanH);
+  ctx.drawImage(img, 0, 0, scanW, scanH);
+  const data = ctx.getImageData(0, 0, scanW, scanH).data;
+
+  const total = scanW * scanH;
+  const transparent = new Uint8Array(total);
+  for (let i = 0; i < total; i++) {
+    if (data[i * 4 + 3] < alphaThreshold) transparent[i] = 1;
+  }
+
+  const visited = new Uint8Array(total);
+  const queue = new Int32Array(total);
+  const minPixels = total * minAreaRatio;
+  const regions: { minX: number; minY: number; maxX: number; maxY: number }[] = [];
+  let ignoredEdgeRegions = 0;
+
+  for (let start = 0; start < total; start++) {
+    if (!transparent[start] || visited[start]) continue;
+    visited[start] = 1;
+    let head = 0;
+    let tail = 0;
+    queue[tail++] = start;
+    let minX = scanW;
+    let minY = scanH;
+    let maxX = -1;
+    let maxY = -1;
+    let count = 0;
+
+    while (head < tail) {
+      const idx = queue[head++];
+      const x = idx % scanW;
+      const y = (idx - x) / scanW;
+      count++;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+
+      if (x > 0 && transparent[idx - 1] && !visited[idx - 1]) {
+        visited[idx - 1] = 1;
+        queue[tail++] = idx - 1;
+      }
+      if (x < scanW - 1 && transparent[idx + 1] && !visited[idx + 1]) {
+        visited[idx + 1] = 1;
+        queue[tail++] = idx + 1;
+      }
+      if (y > 0 && transparent[idx - scanW] && !visited[idx - scanW]) {
+        visited[idx - scanW] = 1;
+        queue[tail++] = idx - scanW;
+      }
+      if (y < scanH - 1 && transparent[idx + scanW] && !visited[idx + scanW]) {
+        visited[idx + scanW] = 1;
+        queue[tail++] = idx + scanW;
+      }
+    }
+
+    if (count < minPixels) continue;
+    if (minX === 0 || minY === 0 || maxX === scanW - 1 || maxY === scanH - 1) {
+      ignoredEdgeRegions++;
+      continue;
+    }
+    regions.push({ minX, minY, maxX, maxY });
+  }
+
+  // Trên xuống dưới; cùng hàng (lệch < 8% chiều cao) thì trái sang phải
+  regions.sort((a, b) =>
+    Math.abs(a.minY - b.minY) < scanH * 0.08 ? a.minX - b.minX : a.minY - b.minY
+  );
+
+  const inv = 1 / scale;
+  const bleed = Math.ceil(inv);
+  const holes: DetectedHole[] = regions.map((r) => {
+    const x = Math.max(0, Math.round(r.minX * inv) - bleed);
+    const y = Math.max(0, Math.round(r.minY * inv) - bleed);
+    const right = Math.min(origW, Math.round((r.maxX + 1) * inv) + bleed);
+    const bottom = Math.min(origH, Math.round((r.maxY + 1) * inv) + bleed);
+    return { x, y, w: right - x, h: bottom - y, rotation: 0 };
+  });
+
+  return { holes, imageWidth: origW, imageHeight: origH, ignoredEdgeRegions };
+}
+
+/** Đọc kích thước gốc của ảnh (File/Blob hoặc URL). */
+export async function readImageSize(source: File | Blob | string): Promise<{ width: number; height: number }> {
+  const img = await loadImage(source);
+  return { width: img.naturalWidth || img.width, height: img.naturalHeight || img.height };
+}
+
+function loadImage(source: File | Blob | string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    const url = URL.createObjectURL(file);
-
+    let objectUrl: string | null = null;
     img.onload = () => {
-      URL.revokeObjectURL(url);
-      const origW = img.naturalWidth || img.width;
-      const origH = img.naturalHeight || img.height;
-
-      if (!origW || !origH) {
-        return resolve({ holes: [], imageWidth: origW, imageHeight: origH });
-      }
-
-      // Giảm độ phân giải xuống để scan siêu tốc trong browser (tỉ lệ scale s)
-      const maxDim = 800;
-      const scale = Math.min(1, maxDim / Math.max(origW, origH));
-      const scanW = Math.round(origW * scale);
-      const scanH = Math.round(origH * scale);
-
-      const canvas = document.createElement('canvas');
-      canvas.width = scanW;
-      canvas.height = scanH;
-      const ctx = canvas.getContext('2d');
-
-      if (!ctx) {
-        return resolve({ holes: [], imageWidth: origW, imageHeight: origH });
-      }
-
-      ctx.drawImage(img, 0, 0, scanW, scanH);
-      const imgData = ctx.getImageData(0, 0, scanW, scanH);
-      const data = imgData.data;
-
-      // Tạo mặt nạ nhị phân: 1 nếu trong suốt (alpha < threshold), 0 nếu là viền khung
-      const isTransparent = new Uint8Array(scanW * scanH);
-      for (let i = 0; i < scanW * scanH; i++) {
-        const alpha = data[i * 4 + 3];
-        if (alpha <= alphaThreshold) {
-          isTransparent[i] = 1;
-        }
-      }
-
-      const visited = new Uint8Array(scanW * scanH);
-      const rawRects: { minX: number; minY: number; maxX: number; maxY: number; count: number }[] = [];
-      const minPixels = Math.round(scanW * scanH * minAreaRatio);
-
-      // Connected Component BFS
-      const queueX = new Int32Array(scanW * scanH);
-      const queueY = new Int32Array(scanW * scanH);
-
-      for (let y = 0; y < scanH; y++) {
-        for (let x = 0; x < scanW; x++) {
-          const idx = y * scanW + x;
-          if (isTransparent[idx] === 1 && visited[idx] === 0) {
-            visited[idx] = 1;
-            let head = 0;
-            let tail = 0;
-            queueX[tail] = x;
-            queueY[tail] = y;
-            tail++;
-
-            let minX = x;
-            let maxX = x;
-            let minY = y;
-            let maxY = y;
-            let pixelCount = 0;
-
-            while (head < tail) {
-              const curX = queueX[head];
-              const curY = queueY[head];
-              head++;
-              pixelCount++;
-
-              if (curX < minX) minX = curX;
-              if (curX > maxX) maxX = curX;
-              if (curY < minY) minY = curY;
-              if (curY > maxY) maxY = curY;
-
-              // 4 lân cận
-              const neighbors = [
-                [curX + 1, curY],
-                [curX - 1, curY],
-                [curX, curY + 1],
-                [curX, curY - 1],
-              ];
-
-              for (const [nx, ny] of neighbors) {
-                if (nx >= 0 && nx < scanW && ny >= 0 && ny < scanH) {
-                  const nIdx = ny * scanW + nx;
-                  if (isTransparent[nIdx] === 1 && visited[nIdx] === 0) {
-                    visited[nIdx] = 1;
-                    queueX[tail] = nx;
-                    queueY[tail] = ny;
-                    tail++;
-                  }
-                }
-              }
-            }
-
-            if (pixelCount >= minPixels) {
-              rawRects.push({ minX, minY, maxX, maxY, count: pixelCount });
-            }
-          }
-        }
-      }
-
-      // Sắp xếp các ô từ trên xuống dưới, từ trái sang phải
-      rawRects.sort((a, b) => {
-        const rowDiff = Math.abs(a.minY - b.minY);
-        // Nếu cùng 1 hàng (chênh lệch Y nhỏ hơn 10% chiều cao)
-        if (rowDiff < scanH * 0.08) {
-          return a.minX - b.minX;
-        }
-        return a.minY - b.minY;
-      });
-
-      // Quy đổi tọa độ về kích thước ảnh gốc
-      const invScale = 1 / scale;
-      const detectedHoles: DetectedHole[] = rawRects.map((r) => {
-        const x = Math.round(r.minX * invScale);
-        const y = Math.round(r.minY * invScale);
-        const w = Math.round((r.maxX - r.minX + 1) * invScale);
-        const h = Math.round((r.maxY - r.minY + 1) * invScale);
-        return { x, y, w, h, rotation: 0 };
-      });
-
-      resolve({
-        holes: detectedHoles,
-        imageWidth: origW,
-        imageHeight: origH,
-      });
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      resolve(img);
     };
-
-    img.onerror = (err) => reject(new Error('Không thể đọc file ảnh PNG: ' + err));
-    img.src = url;
+    img.onerror = () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      reject(new Error('Không thể đọc file ảnh PNG.'));
+    };
+    if (typeof source === 'string') {
+      if (!source.startsWith('blob:') && !source.startsWith('data:')) img.crossOrigin = 'anonymous';
+      img.src = source;
+    } else {
+      objectUrl = URL.createObjectURL(source);
+      img.src = objectUrl;
+    }
   });
 }

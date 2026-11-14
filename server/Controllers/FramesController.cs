@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
-using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using VietQrKiosk.Server.Entities;
 using VietQrKiosk.Server.Infra.Repositories;
 using VietQrKiosk.Server.Models;
+using VietQrKiosk.Server.Services;
 using VietQrKiosk.Server.Services.Interfaces;
 
 namespace VietQrKiosk.Server.Controllers;
@@ -13,6 +13,9 @@ namespace VietQrKiosk.Server.Controllers;
 [Tags("Frames")]
 public class FramesController : ControllerBase
 {
+    private const long MaxFrameBytes = 30 * 1024 * 1024;
+    private const long MaxXmlBytes = 1 * 1024 * 1024;
+
     private readonly IPhotoFrameRepository _frameRepo;
     private readonly IPhotoLayoutRepository _layoutRepo;
     private readonly IStorageService _storageService;
@@ -33,7 +36,7 @@ public class FramesController : ControllerBase
     /// <remarks>
     /// Retrieves a list of photo frames with optional filtering by layout ID, category ID, and active status.
     /// </remarks>
-    /// <param name="layoutId" example="strips_2x6">Filter by layout format identifier (e.g. 'strips_2x6', 'grid_4x6', 'postcard_4x6').</param>
+    /// <param name="layoutId" example="1x4">Filter by layout format identifier.</param>
     /// <param name="categoryId" example="1">Filter by category integer identifier.</param>
     /// <param name="onlyActive" example="false">If true, returns only active frames enabled for customer selection.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -65,16 +68,22 @@ public class FramesController : ControllerBase
 
     /// <remarks>
     /// Uploads a new transparent PNG photo frame and configures its hole coordinates.
-    /// Optionally accepts a template.xml file to automatically parse photo holes and layout dimensions.
+    /// Hole coordinates are stored in pixels of the uploaded PNG. holesJson may be a plain array
+    /// or HiHiBooth-style metadata {"holes":[...],"fw":W,"fh":H}; coordinates are rescaled when fw/fh
+    /// differ from the PNG size. A template.xml file, when provided, takes priority for holes and QR.
     /// </remarks>
     /// <param name="file">Transparent PNG frame image file with alpha channel.</param>
-    /// <param name="layoutId" example="strips_2x6">Target layout format identifier.</param>
+    /// <param name="layoutId" example="1x4">Target layout format identifier.</param>
     /// <param name="name" example="Summer Vintage 2026">Display name for the frame.</param>
     /// <param name="categoryId" example="1">Associated category ID.</param>
-    /// <param name="holesJson" example="[{&quot;x&quot;:50,&quot;y&quot;:80,&quot;width&quot;:500,&quot;height&quot;:350}]">JSON array of photo hole rectangles in pixels.</param>
+    /// <param name="holesJson" example="{&quot;holes&quot;:[{&quot;x&quot;:50,&quot;y&quot;:80,&quot;w&quot;:500,&quot;h&quot;:350}],&quot;fw&quot;:1200,&quot;fh&quot;:3600}">Photo holes as an array or {holes, fw, fh} metadata.</param>
     /// <param name="xmlFile">Optional template.xml file exported from photobooth frame tools.</param>
     /// <param name="displayOrder" example="0">Sorting order on kiosk display.</param>
     /// <param name="isActive" example="true">Whether the frame is active and visible.</param>
+    /// <param name="qrX" example="85">QR centre X as % of frame width (0-100). Omit all three QR fields for no QR.</param>
+    /// <param name="qrY" example="90">QR centre Y as % of frame height (0-100).</param>
+    /// <param name="qrSize" example="10">QR side length as % of frame width (2-50).</param>
+    /// <param name="enableOverlay" example="false">Show the frame over the live camera view while shooting.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Created PhotoFrameDto.</returns>
     [HttpPost]
@@ -89,111 +98,106 @@ public class FramesController : ControllerBase
         [FromForm] IFormFile? xmlFile = null,
         [FromForm] int displayOrder = 0,
         [FromForm] bool isActive = true,
+        [FromForm] double? qrX = null,
+        [FromForm] double? qrY = null,
+        [FromForm] double? qrSize = null,
+        [FromForm] bool enableOverlay = false,
         CancellationToken ct = default)
     {
-        if (file == null || file.Length == 0)
+        var fileError = ValidatePngUpload(file, required: true);
+        if (fileError != null) return BadRequest(new ErrorBody(fileError));
+
+        int frameW, frameH;
+        await using (var probe = file.OpenReadStream())
         {
-            return BadRequest(new ErrorBody("Photo frame PNG file upload is required."));
+            (frameW, frameH) = FrameMetadata.ReadPngSize(probe) ?? (0, 0);
         }
 
-        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (ext != ".png")
+        var template = TryParseTemplate(xmlFile, frameW, frameH, out var xmlError);
+        if (xmlError != null) return BadRequest(new ErrorBody(xmlError));
+
+        if (frameW == 0 && template != null)
         {
-            return BadRequest(new ErrorBody("Photo frames must be in transparent .PNG format with alpha channel."));
+            frameW = template.Width;
+            frameH = template.Height;
         }
 
-        // Nếu có file XML tải lên kèm, ưu tiên parse tọa độ từ template.xml
-        if (xmlFile != null && xmlFile.Length > 0)
+        if (string.IsNullOrWhiteSpace(layoutId) && template != null)
         {
-            try
+            if (!string.IsNullOrWhiteSpace(template.Layout) && await _layoutRepo.GetByIdAsync(template.Layout, ct) != null)
             {
-                using var xmlStream = xmlFile.OpenReadStream();
-                var doc = System.Xml.Linq.XDocument.Load(xmlStream);
-                var root = doc.Root;
-                if (root != null)
-                {
-                    var photos = doc.Descendants().Where(e => string.Equals(e.Name.LocalName, "Photo", StringComparison.OrdinalIgnoreCase)).ToList();
-                    if (photos.Count > 0)
-                    {
-                        var parsedHoles = photos.Select(p => new
-                        {
-                            x = int.Parse((string?)p.Attribute("Left") ?? (string?)p.Attribute("left") ?? "0"),
-                            y = int.Parse((string?)p.Attribute("Top") ?? (string?)p.Attribute("top") ?? "0"),
-                            w = int.Parse((string?)p.Attribute("Width") ?? (string?)p.Attribute("width") ?? "0"),
-                            h = int.Parse((string?)p.Attribute("Height") ?? (string?)p.Attribute("height") ?? "0"),
-                            rotation = 0
-                        }).ToList();
-
-                        holesJson = JsonSerializer.Serialize(parsedHoles);
-
-                        if (string.IsNullOrWhiteSpace(layoutId))
-                        {
-                            var layoutAttr = (string?)root.Attribute("Layout") ?? (string?)root.Attribute("layout");
-                            if (!string.IsNullOrWhiteSpace(layoutAttr) && (await _layoutRepo.GetByIdAsync(layoutAttr, ct)) != null)
-                            {
-                                layoutId = layoutAttr;
-                            }
-                            else
-                            {
-                                layoutId = parsedHoles.Count switch
-                                {
-                                    4 when parsedHoles.All(h => Math.Abs(h.x - parsedHoles[0].x) < 50) => "1x4",
-                                    4 => "2x2",
-                                    6 => "2x3",
-                                    _ => "2x2"
-                                };
-                            }
-                        }
-
-                        if (string.IsNullOrWhiteSpace(name))
-                        {
-                            var nameAttr = (string?)root.Attribute("Name") ?? (string?)root.Attribute("name");
-                            if (!string.IsNullOrWhiteSpace(nameAttr) && !nameAttr.Contains("Untitled", StringComparison.OrdinalIgnoreCase))
-                            {
-                                name = nameAttr;
-                            }
-                        }
-                    }
-                }
+                layoutId = template.Layout;
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogWarning(ex, "Failed to parse uploaded xmlFile for photo frame.");
+                layoutId = FrameMetadata.GuessLayoutId(template.Holes);
             }
         }
+        if (string.IsNullOrWhiteSpace(layoutId)) layoutId = "2x2";
 
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            name = Path.GetFileNameWithoutExtension(file.FileName).Replace('_', ' ').Replace('-', ' ').Trim();
-        }
-
-        if (string.IsNullOrWhiteSpace(layoutId))
-        {
-            layoutId = "2x2";
-        }
-
-        var layout = await _layoutRepo.GetByIdAsync(layoutId, ct);
+        var layout = await _layoutRepo.GetByIdAsync(layoutId.Trim(), ct);
         if (layout == null)
         {
             return BadRequest(new ErrorBody($"Layout '{layoutId}' does not exist in the system."));
         }
 
+        if (frameW == 0)
+        {
+            // PNG không đọc được kích thước và không có template: dùng khổ in của layout
+            frameW = layout.WidthPx;
+            frameH = layout.HeightPx;
+        }
+
+        List<HoleRectDto> holes;
+        if (template != null)
+        {
+            holes = template.Holes;
+            if (!qrX.HasValue && !qrY.HasValue && !qrSize.HasValue)
+            {
+                (qrX, qrY, qrSize) = (template.QrX, template.QrY, template.QrSize);
+            }
+        }
+        else
+        {
+            try
+            {
+                holes = FrameMetadata.ParseHoles(holesJson, frameW, frameH);
+            }
+            catch (FormatException ex)
+            {
+                return BadRequest(new ErrorBody(ex.Message));
+            }
+        }
+
+        var qrError = FrameMetadata.ValidateQr(qrX, qrY, qrSize);
+        if (qrError != null) return BadRequest(new ErrorBody(qrError));
+
+        if (string.IsNullOrWhiteSpace(name)) name = template?.Name;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = Path.GetFileNameWithoutExtension(file.FileName).Replace('_', ' ').Replace('-', ' ').Trim();
+        }
+
         string fileUrl;
-        using (var stream = file.OpenReadStream())
+        await using (var stream = file.OpenReadStream())
         {
             fileUrl = await _storageService.UploadFileAsync(stream, file.FileName, "image/png", "frames", ct);
         }
 
-        var sanitizedHoles = string.IsNullOrWhiteSpace(holesJson) ? "[]" : holesJson.Trim();
-
         var frame = new PhotoFrame
         {
-            LayoutId = layoutId.Trim(),
+            LayoutId = layout.Id,
             CategoryId = categoryId,
             Name = name.Trim(),
             FrameUrl = fileUrl,
             ThumbnailUrl = fileUrl,
-            HolesJson = sanitizedHoles,
+            HolesJson = FrameMetadata.Serialize(holes),
+            FrameWidth = frameW,
+            FrameHeight = frameH,
+            QrX = qrX,
+            QrY = qrY,
+            QrSize = qrSize,
+            EnableOverlay = enableOverlay,
             DisplayOrder = displayOrder,
             IsActive = isActive,
             CreatedAt = DateTime.UtcNow,
@@ -203,22 +207,32 @@ public class FramesController : ControllerBase
         await _frameRepo.AddAsync(frame, ct);
         await _frameRepo.SaveChangesAsync(ct);
 
-        _logger.LogInformation("Created new frame: {FrameId} - {FrameName} ({StorageProvider})", frame.Id, frame.Name, _storageService.ProviderName);
+        _logger.LogInformation(
+            "Created new frame: {FrameId} - {FrameName} ({Width}x{Height}, {HoleCount} holes, {StorageProvider})",
+            frame.Id, frame.Name, frameW, frameH, holes.Count, _storageService.ProviderName);
         return CreatedAtAction(nameof(GetById), new { id = frame.Id }, MapToDto(frame));
     }
 
     /// <remarks>
-    /// Updates an existing photo frame configuration or replaces its image asset.
+    /// Partially updates a photo frame. Every field is optional: omitted fields keep their current value.
+    /// Use clearCategory=true to remove the category and clearQr=true to remove the QR position.
+    /// When a replacement PNG has a different size and no new holes are sent, the existing holes are rescaled.
     /// </remarks>
     /// <param name="id" example="1">Unique integer identifier of the photo frame.</param>
     /// <param name="file">Optional replacement PNG frame image file.</param>
-    /// <param name="layoutId" example="strips_2x6">Layout format identifier.</param>
+    /// <param name="layoutId" example="1x4">Layout format identifier.</param>
     /// <param name="name" example="Summer Vintage 2026 Updated">Updated frame name.</param>
     /// <param name="categoryId" example="1">Updated category ID.</param>
-    /// <param name="holesJson" example="[]">Updated photo hole coordinates JSON array.</param>
+    /// <param name="clearCategory" example="false">Remove the category from this frame.</param>
+    /// <param name="holesJson" example="[]">Updated holes, as an array or {holes, fw, fh} metadata.</param>
     /// <param name="xmlFile">Optional replacement template.xml to update hole coordinates.</param>
     /// <param name="displayOrder" example="1">Updated display order.</param>
     /// <param name="isActive" example="true">Updated visibility status.</param>
+    /// <param name="qrX" example="85">QR centre X (%).</param>
+    /// <param name="qrY" example="90">QR centre Y (%).</param>
+    /// <param name="qrSize" example="10">QR side length (% of width).</param>
+    /// <param name="clearQr" example="false">Remove the QR position.</param>
+    /// <param name="enableOverlay" example="false">Show the frame over the live camera view.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Updated PhotoFrameDto.</returns>
     [HttpPut("{id:int}")]
@@ -226,89 +240,155 @@ public class FramesController : ControllerBase
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<PhotoFrameDto>> Update(
         int id,
-        [FromForm] IFormFile? file,
-        [FromForm] string layoutId,
-        [FromForm] string name,
+        [FromForm] IFormFile? file = null,
+        [FromForm] string? layoutId = null,
+        [FromForm] string? name = null,
         [FromForm] int? categoryId = null,
+        [FromForm] bool clearCategory = false,
         [FromForm] string? holesJson = null,
         [FromForm] IFormFile? xmlFile = null,
-        [FromForm] int displayOrder = 0,
-        [FromForm] bool isActive = true,
+        [FromForm] int? displayOrder = null,
+        [FromForm] bool? isActive = null,
+        [FromForm] double? qrX = null,
+        [FromForm] double? qrY = null,
+        [FromForm] double? qrSize = null,
+        [FromForm] bool clearQr = false,
+        [FromForm] bool? enableOverlay = null,
         CancellationToken ct = default)
     {
         var frame = await _frameRepo.GetByIdAsync(id, ct);
         if (frame == null) return NotFound(new ErrorBody($"Photo frame with id={id} not found."));
 
+        var fileError = ValidatePngUpload(file, required: false);
+        if (fileError != null) return BadRequest(new ErrorBody(fileError));
+
         if (!string.IsNullOrWhiteSpace(layoutId) && layoutId != frame.LayoutId)
         {
             var layout = await _layoutRepo.GetByIdAsync(layoutId, ct);
             if (layout == null) return BadRequest(new ErrorBody($"Layout '{layoutId}' does not exist."));
-            frame.LayoutId = layoutId;
+            frame.LayoutId = layout.Id;
         }
 
-        if (!string.IsNullOrWhiteSpace(name))
+        if (!string.IsNullOrWhiteSpace(name)) frame.Name = name.Trim();
+        if (clearCategory) frame.CategoryId = null;
+        else if (categoryId.HasValue) frame.CategoryId = categoryId;
+        if (displayOrder.HasValue) frame.DisplayOrder = displayOrder.Value;
+        if (isActive.HasValue) frame.IsActive = isActive.Value;
+        if (enableOverlay.HasValue) frame.EnableOverlay = enableOverlay.Value;
+
+        // Kích thước mới nếu thay file PNG
+        var oldW = frame.FrameWidth;
+        var oldH = frame.FrameHeight;
+        var newW = oldW;
+        var newH = oldH;
+        if (file != null)
         {
-            frame.Name = name.Trim();
+            await using var probe = file.OpenReadStream();
+            var size = FrameMetadata.ReadPngSize(probe);
+            if (size.HasValue) (newW, newH) = size.Value;
         }
-        frame.CategoryId = categoryId;
-        frame.DisplayOrder = displayOrder;
-        frame.IsActive = isActive;
+        if (newW == 0 || newH == 0)
+        {
+            var layout = frame.Layout ?? await _layoutRepo.GetByIdAsync(frame.LayoutId, ct);
+            newW = layout?.WidthPx ?? 0;
+            newH = layout?.HeightPx ?? 0;
+        }
 
-        // Nếu có xmlFile tải lên, parse cập nhật holes
-        if (xmlFile != null && xmlFile.Length > 0)
+        var template = TryParseTemplate(xmlFile, newW, newH, out var xmlError);
+        if (xmlError != null) return BadRequest(new ErrorBody(xmlError));
+
+        if (template != null)
+        {
+            frame.HolesJson = FrameMetadata.Serialize(template.Holes);
+            if (!clearQr && !qrX.HasValue && !qrY.HasValue && !qrSize.HasValue && template.QrX.HasValue)
+            {
+                (qrX, qrY, qrSize) = (template.QrX, template.QrY, template.QrSize);
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(holesJson))
         {
             try
             {
-                using var xmlStream = xmlFile.OpenReadStream();
-                var doc = System.Xml.Linq.XDocument.Load(xmlStream);
-                var photos = doc.Descendants().Where(e => string.Equals(e.Name.LocalName, "Photo", StringComparison.OrdinalIgnoreCase)).ToList();
-                if (photos.Count > 0)
-                {
-                    var parsedHoles = photos.Select(p => new
-                    {
-                        x = int.Parse((string?)p.Attribute("Left") ?? (string?)p.Attribute("left") ?? "0"),
-                        y = int.Parse((string?)p.Attribute("Top") ?? (string?)p.Attribute("top") ?? "0"),
-                        w = int.Parse((string?)p.Attribute("Width") ?? (string?)p.Attribute("width") ?? "0"),
-                        h = int.Parse((string?)p.Attribute("Height") ?? (string?)p.Attribute("height") ?? "0"),
-                        rotation = 0
-                    }).ToList();
-                    holesJson = JsonSerializer.Serialize(parsedHoles);
-                }
+                frame.HolesJson = FrameMetadata.Serialize(FrameMetadata.ParseHoles(holesJson, newW, newH));
             }
-            catch (Exception ex)
+            catch (FormatException ex)
             {
-                _logger.LogWarning(ex, "Failed to parse updated xmlFile for frame {FrameId}", id);
+                return BadRequest(new ErrorBody(ex.Message));
             }
         }
-
-        if (!string.IsNullOrWhiteSpace(holesJson)) frame.HolesJson = holesJson.Trim();
-
-        if (file != null && file.Length > 0)
+        else if (file != null && oldW > 0 && oldH > 0 && (oldW != newW || oldH != newH))
         {
-            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-            if (ext != ".png")
-            {
-                return BadRequest(new ErrorBody("Photo frames must be in transparent .PNG format."));
-            }
+            // Thay PNG khác kích thước mà không gửi toạ độ mới: co giãn ô theo tỉ lệ
+            var rescaled = FrameMetadata.Rescale(FrameMetadata.Deserialize(frame.HolesJson), oldW, oldH, newW, newH);
+            frame.HolesJson = FrameMetadata.Serialize(rescaled);
+        }
 
-            var oldUrl = frame.FrameUrl;
-            using (var stream = file.OpenReadStream())
+        if (clearQr)
+        {
+            frame.QrX = frame.QrY = frame.QrSize = null;
+        }
+        else if (qrX.HasValue || qrY.HasValue || qrSize.HasValue)
+        {
+            var qrError = FrameMetadata.ValidateQr(qrX, qrY, qrSize);
+            if (qrError != null) return BadRequest(new ErrorBody(qrError));
+            frame.QrX = qrX;
+            frame.QrY = qrY;
+            frame.QrSize = qrSize;
+        }
+
+        string? replacedUrl = null;
+        if (file != null)
+        {
+            replacedUrl = frame.FrameUrl;
+            await using (var stream = file.OpenReadStream())
             {
                 frame.FrameUrl = await _storageService.UploadFileAsync(stream, file.FileName, "image/png", "frames", ct);
-                frame.ThumbnailUrl = frame.FrameUrl;
             }
-
-            if (!string.IsNullOrWhiteSpace(oldUrl) && oldUrl != frame.FrameUrl)
-            {
-                _ = _storageService.DeleteFileAsync(oldUrl, ct);
-            }
+            frame.ThumbnailUrl = frame.FrameUrl;
         }
+        frame.FrameWidth = newW;
+        frame.FrameHeight = newH;
 
         await _frameRepo.UpdateAsync(frame, ct);
         await _frameRepo.SaveChangesAsync(ct);
 
+        if (!string.IsNullOrWhiteSpace(replacedUrl) && replacedUrl != frame.FrameUrl)
+        {
+            _ = _storageService.DeleteFileAsync(replacedUrl, ct);
+        }
+
         _logger.LogInformation("Updated frame: {FrameId}", frame.Id);
         return Ok(MapToDto(frame));
+    }
+
+    /// <remarks>
+    /// Shows or hides many frames at once. When ids is omitted or empty, every frame is affected.
+    /// </remarks>
+    /// <param name="request">Target visibility and optional frame ids.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Number of frames whose visibility changed.</returns>
+    [HttpPut("bulk-visibility")]
+    [Authorize]
+    public async Task<ActionResult<BulkFrameVisibilityResult>> BulkVisibility(
+        [FromBody] BulkFrameVisibilityRequest request,
+        CancellationToken ct = default)
+    {
+        var frames = await _frameRepo.GetAllAsync(null, null, false, ct);
+        var targetIds = request.Ids is { Count: > 0 } ? request.Ids.ToHashSet() : null;
+
+        var updated = 0;
+        foreach (var frame in frames)
+        {
+            if (targetIds != null && !targetIds.Contains(frame.Id)) continue;
+            if (frame.IsActive == request.IsActive) continue;
+            frame.IsActive = request.IsActive;
+            await _frameRepo.UpdateAsync(frame, ct);
+            updated++;
+        }
+
+        if (updated > 0) await _frameRepo.SaveChangesAsync(ct);
+        _logger.LogInformation("Bulk visibility: {Count} frames set to {IsActive}", updated, request.IsActive);
+        return Ok(new BulkFrameVisibilityResult(updated));
     }
 
     /// <remarks>
@@ -357,57 +437,50 @@ public class FramesController : ControllerBase
         }
 
         var dirInfo = new DirectoryInfo(targetDir);
-        var subDirs = dirInfo.GetDirectories();
         var results = new List<PhotoFrame>();
 
-        foreach (var sub in subDirs)
+        foreach (var sub in dirInfo.GetDirectories())
         {
-            var xmlFile = Path.Combine(sub.FullName, "template.xml");
-            if (!System.IO.File.Exists(xmlFile)) continue;
+            var xmlPath = Path.Combine(sub.FullName, "template.xml");
+            if (!System.IO.File.Exists(xmlPath)) continue;
 
             try
             {
-                var doc = System.Xml.Linq.XDocument.Load(xmlFile);
-                var root = doc.Root;
-                if (root == null) continue;
-
-                var imgEl = doc.Descendants("Image").FirstOrDefault(i => (string?)i.Attribute("Name") == "frame")
-                            ?? doc.Descendants("Image").FirstOrDefault();
-                var imageFileName = (string?)imgEl?.Attribute("ImagePath");
+                // Đọc template lần đầu để lấy tên ảnh viền
+                FrameMetadata.ParsedTemplate? probeTemplate;
+                await using (var xs = System.IO.File.OpenRead(xmlPath))
+                {
+                    probeTemplate = FrameMetadata.ParseTemplateXml(xs);
+                }
+                if (probeTemplate == null) continue;
 
                 string? frameFilePath = null;
-                if (!string.IsNullOrWhiteSpace(imageFileName))
+                if (!string.IsNullOrWhiteSpace(probeTemplate.ImagePath))
                 {
-                    var potential = Path.Combine(sub.FullName, imageFileName);
+                    var potential = Path.Combine(sub.FullName, probeTemplate.ImagePath);
                     if (System.IO.File.Exists(potential)) frameFilePath = potential;
                 }
-
                 if (frameFilePath == null)
                 {
                     var pngs = sub.GetFiles("*.png").Where(f => !f.Name.Equals("preview.png", StringComparison.OrdinalIgnoreCase)).ToList();
                     if (pngs.Count > 0) frameFilePath = pngs[0].FullName;
                 }
-
                 if (frameFilePath == null) continue;
 
-                var photos = doc.Descendants("Photo").ToList();
-                var holes = photos.Select(p => new
+                int frameW, frameH;
+                await using (var probe = System.IO.File.OpenRead(frameFilePath))
                 {
-                    x = int.Parse((string?)p.Attribute("Left") ?? "0"),
-                    y = int.Parse((string?)p.Attribute("Top") ?? "0"),
-                    w = int.Parse((string?)p.Attribute("Width") ?? "0"),
-                    h = int.Parse((string?)p.Attribute("Height") ?? "0"),
-                    rotation = 0
-                }).ToList();
+                    (frameW, frameH) = FrameMetadata.ReadPngSize(probe) ?? (probeTemplate.Width, probeTemplate.Height);
+                }
 
-                var holeCount = holes.Count;
-                var layoutId = holeCount switch
+                // Đọc lại để quy đổi toạ độ về đúng kích thước PNG
+                FrameMetadata.ParsedTemplate template;
+                await using (var xs = System.IO.File.OpenRead(xmlPath))
                 {
-                    4 when holes.All(h => Math.Abs(h.x - holes[0].x) < 50) => "1x4",
-                    4 => "2x2",
-                    6 => "2x3",
-                    _ => "2x2"
-                };
+                    template = FrameMetadata.ParseTemplateXml(xs, frameW, frameH) ?? probeTemplate;
+                }
+
+                var layoutId = FrameMetadata.GuessLayoutId(template.Holes);
 
                 string frameUrl;
                 await using (var fs = System.IO.File.OpenRead(frameFilePath))
@@ -423,12 +496,10 @@ public class FramesController : ControllerBase
                     previewUrl = await _storageService.UploadFileAsync(fs, $"{sub.Name}_preview.png", "image/png", "frames", ct);
                 }
 
-                var nameAttr = (string?)root.Attribute("Name");
-                var frameName = (!string.IsNullOrWhiteSpace(nameAttr) && !nameAttr.Contains("Untitled", StringComparison.OrdinalIgnoreCase))
-                    ? $"{nameAttr} ({layoutId})"
+                var frameName = !string.IsNullOrWhiteSpace(template.Name)
+                    ? $"{template.Name} ({layoutId})"
                     : $"{sub.Name} ({layoutId})";
-
-                var holesJson = JsonSerializer.Serialize(holes);
+                var holesJson = FrameMetadata.Serialize(template.Holes);
 
                 var existing = (await _frameRepo.GetAllAsync(null, null, false, ct))
                     .FirstOrDefault(f => f.Name == frameName);
@@ -439,7 +510,11 @@ public class FramesController : ControllerBase
                     existing.FrameUrl = frameUrl;
                     existing.ThumbnailUrl = previewUrl ?? frameUrl;
                     existing.HolesJson = holesJson;
-                    existing.UpdatedAt = DateTime.UtcNow;
+                    existing.FrameWidth = frameW;
+                    existing.FrameHeight = frameH;
+                    existing.QrX = template.QrX;
+                    existing.QrY = template.QrY;
+                    existing.QrSize = template.QrSize;
                     await _frameRepo.UpdateAsync(existing, ct);
                     results.Add(existing);
                 }
@@ -453,6 +528,11 @@ public class FramesController : ControllerBase
                         FrameUrl = frameUrl,
                         ThumbnailUrl = previewUrl ?? frameUrl,
                         HolesJson = holesJson,
+                        FrameWidth = frameW,
+                        FrameHeight = frameH,
+                        QrX = template.QrX,
+                        QrY = template.QrY,
+                        QrSize = template.QrSize,
                         DisplayOrder = results.Count + 1,
                         IsActive = true,
                         CreatedAt = DateTime.UtcNow,
@@ -475,22 +555,64 @@ public class FramesController : ControllerBase
         return Ok(results.Select(MapToDto).ToList());
     }
 
-    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
+    private static string? ValidatePngUpload(IFormFile? file, bool required)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return required ? "Photo frame PNG file upload is required." : null;
+        }
+        if (file.Length > MaxFrameBytes)
+        {
+            return "Photo frame PNG must be 30 MB or smaller.";
+        }
+        if (!string.Equals(Path.GetExtension(file.FileName), ".png", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Photo frames must be in transparent .PNG format with alpha channel.";
+        }
+
+        Span<byte> signature = stackalloc byte[8];
+        using var stream = file.OpenReadStream();
+        var read = 0;
+        while (read < signature.Length)
+        {
+            var n = stream.Read(signature[read..]);
+            if (n == 0) break;
+            read += n;
+        }
+        ReadOnlySpan<byte> png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        return read == 8 && signature.SequenceEqual(png) ? null : "File tải lên không phải ảnh PNG hợp lệ.";
+    }
+
+    private FrameMetadata.ParsedTemplate? TryParseTemplate(IFormFile? xmlFile, int frameW, int frameH, out string? error)
+    {
+        error = null;
+        if (xmlFile == null || xmlFile.Length == 0) return null;
+        if (xmlFile.Length > MaxXmlBytes)
+        {
+            error = "template.xml must be 1 MB or smaller.";
+            return null;
+        }
+
+        try
+        {
+            using var stream = xmlFile.OpenReadStream();
+            var template = FrameMetadata.ParseTemplateXml(stream, frameW, frameH);
+            if (template == null) error = "template.xml không chứa ô ảnh (thẻ <Photo>) nào.";
+            return template;
+        }
+        catch (Exception ex) when (ex is System.Xml.XmlException or FormatException)
+        {
+            _logger.LogWarning(ex, "Failed to parse uploaded template.xml");
+            error = "template.xml không đúng định dạng.";
+            return null;
+        }
+    }
 
     private static PhotoFrameDto MapToDto(PhotoFrame entity)
     {
-        var holes = new List<HoleRectDto>();
-        if (!string.IsNullOrWhiteSpace(entity.HolesJson))
-        {
-            try
-            {
-                holes = JsonSerializer.Deserialize<List<HoleRectDto>>(entity.HolesJson, JsonOpts) ?? new();
-            }
-            catch
-            {
-                // Fallback empty
-            }
-        }
+        // Dữ liệu cũ chưa có kích thước PNG: toạ độ được tạo theo khổ in của layout
+        var width = entity.FrameWidth > 0 ? entity.FrameWidth : entity.Layout?.WidthPx ?? 0;
+        var height = entity.FrameHeight > 0 ? entity.FrameHeight : entity.Layout?.HeightPx ?? 0;
 
         return new PhotoFrameDto(
             Id: entity.Id,
@@ -501,10 +623,16 @@ public class FramesController : ControllerBase
             Name: entity.Name,
             FrameUrl: entity.FrameUrl,
             ThumbnailUrl: entity.ThumbnailUrl ?? entity.FrameUrl,
-            Holes: holes,
+            Holes: FrameMetadata.Deserialize(entity.HolesJson),
             IsActive: entity.IsActive,
             DisplayOrder: entity.DisplayOrder,
-            CreatedAt: entity.CreatedAt
+            CreatedAt: entity.CreatedAt,
+            FrameWidth: width,
+            FrameHeight: height,
+            QrX: entity.QrX,
+            QrY: entity.QrY,
+            QrSize: entity.QrSize,
+            EnableOverlay: entity.EnableOverlay
         );
     }
 }

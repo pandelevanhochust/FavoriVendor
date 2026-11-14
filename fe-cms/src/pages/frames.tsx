@@ -1,115 +1,120 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Card,
-  Row,
-  Col,
-  Typography,
+  Alert,
+  Badge,
   Button,
-  Tag,
-  Space,
-  Upload,
-  Modal,
+  Col,
+  Empty,
   Form,
   Input,
-  Select,
   InputNumber,
-  Switch,
-  message,
+  Modal,
   Popconfirm,
+  Progress,
+  Row,
+  Select,
+  Space,
   Spin,
-  Empty,
-  Alert,
+  Switch,
   Tabs,
-  Badge,
+  Tag,
+  Upload,
+  message,
 } from 'antd';
 import {
-  PlusOutlined,
-  UploadOutlined,
-  DeleteOutlined,
-  ReloadOutlined,
-  InboxOutlined,
+  AimOutlined,
   CheckCircleOutlined,
-  FileTextOutlined,
-  PictureOutlined,
+  DeleteOutlined,
   EditOutlined,
+  FileTextOutlined,
+  InboxOutlined,
+  PlusOutlined,
+  PoweroffOutlined,
+  ReloadOutlined,
   SaveOutlined,
   SearchOutlined,
-  AimOutlined,
-  PoweroffOutlined,
+  UploadOutlined,
+  VideoCameraOutlined,
 } from '@ant-design/icons';
 import { useRouter } from 'next/router';
 import {
+  PhotoCategory,
   PhotoFrame,
   PhotoLayout,
-  PhotoCategory,
+  QrPlacement,
+  appendQr,
+  bulkFrameVisibility,
+  createFrame,
+  deleteFrame,
+  getCategories,
   getFrames,
   getLayouts,
-  getCategories,
-  createFrame,
-  updateFrame,
-  deleteFrame,
+  holesMetadataJson,
+  qrOfFrame,
   resolveAssetUrl,
+  updateFrame,
 } from '../api/photoLayoutApi';
-import {
-  detectTransparentHoles,
-  parseTemplateXml,
-  DetectedHole,
-} from '../utils/frameDetector';
+import { DetectedHole, detectTransparentHoles, parseTemplateXml } from '../utils/frameDetector';
 import VisualHoleEditor from '../components/frames/VisualHoleEditor';
 
-const { Text } = Typography;
+const MAX_FRAME_BYTES = 30 * 1024 * 1024;
 
-const BULK_CONCURRENCY = 4;
+/** Khổ file PNG khuyến nghị (rộng × cao), giống hướng dẫn trên HiHiBooth. */
+const FRAME_SIZE_GUIDE = [
+  { label: 'Dải dọc', size: '1200 × 3600 px', w: 1200, h: 3600 },
+  { label: 'Nguyên khổ dọc', size: '2400 × 3600 px', w: 2400, h: 3600 },
+  { label: 'Nguyên khổ ngang', size: '3600 × 2400 px', w: 3600, h: 2400 },
+];
+
+const OVERLAY_CONFIRM =
+  'Frame sẽ hiện đè lên màn hình Live View để khách căn vị trí trước khi chụp, và vẫn được ghép vào ảnh kết quả. ' +
+  'Chỉ nên bật với frame cần căn khuôn mặt hoặc bố cục, vì frame có thể che một phần ảnh xem trước.';
+
+type StatusFilter = 'all' | 'visible' | 'hidden';
 
 const errorMessage = (err: any, fallback: string) =>
   err?.response?.data?.message || err?.response?.data?.error || fallback;
 
-type FrameMeta = Pick<PhotoFrame, 'layoutId' | 'name' | 'categoryId' | 'displayOrder' | 'isActive'>;
+const frameSize = (frame: PhotoFrame, layout?: PhotoLayout) => ({
+  w: frame.frameWidth || layout?.widthPx || 2400,
+  h: frame.frameHeight || layout?.heightPx || 3600,
+});
 
-/**
- * FormData đầy đủ cho PUT /api/frames/{id}. Backend ghi đè categoryId, displayOrder và isActive
- * bằng mặc định nếu thiếu, nên mọi lần cập nhật đều phải gửi lại toàn bộ metadata.
- * Không truyền holes = giữ nguyên toạ độ lỗ.
- */
-function buildFrameFormData(meta: FrameMeta, holes?: DetectedHole[]): FormData {
-  const formData = new FormData();
-  formData.append('layoutId', meta.layoutId);
-  formData.append('name', meta.name);
-  if (meta.categoryId != null) formData.append('categoryId', meta.categoryId.toString());
-  formData.append('displayOrder', (meta.displayOrder ?? 0).toString());
-  formData.append('isActive', meta.isActive.toString());
-  if (holes) formData.append('holesJson', JSON.stringify(holes));
-  return formData;
+function confirmOverlay(onOk: () => void) {
+  Modal.confirm({
+    title: 'Bật frame trên Live View?',
+    content: OVERLAY_CONFIRM,
+    okText: 'Tôi hiểu, bật overlay',
+    cancelText: 'Hủy',
+    onOk,
+  });
 }
 
-/** Ảnh frame thu nhỏ kèm vùng lỗ lồng ảnh, vẽ theo hệ toạ độ pixel của khổ in. */
-const FrameHolePreview: React.FC<{ frame: PhotoFrame; width: number; height: number }> = ({
-  frame,
-  width,
-  height,
-}) => {
+/** Chọn layout khớp nhất theo tỉ lệ ảnh và số ô (khi người dùng chưa chọn tay). */
+function suggestLayout(layouts: PhotoLayout[], w: number, h: number, holeCount: number): PhotoLayout | undefined {
+  if (layouts.length === 0 || !w || !h) return undefined;
+  const ratio = w / h;
+  const score = (l: PhotoLayout) =>
+    Math.abs(Math.log(l.widthPx / l.heightPx / ratio)) * 4 + (holeCount > 0 && l.holeCount !== holeCount ? 1 : 0);
+  return [...layouts].sort((a, b) => score(a) - score(b))[0];
+}
+
+/** Ảnh frame thu nhỏ kèm vùng ô và QR, vẽ theo hệ toạ độ pixel của PNG. */
+const FrameHolePreview: React.FC<{ frame: PhotoFrame; width: number; height: number }> = ({ frame, width, height }) => {
   const holes = frame.holes || [];
   const stroke = Math.max(width, height) / 220;
   const fontSize = Math.max(width, height) / 22;
-  const rotate = (h: DetectedHole) =>
-    h.rotation ? `rotate(${h.rotation} ${h.x + h.w / 2} ${h.y + h.h / 2})` : undefined;
+  const qr = qrOfFrame(frame);
+  const qrSide = qr ? (qr.size / 100) * width : 0;
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={frame.name}>
       {holes.map((h, i) => (
-        <rect
-          key={`fill-${i}`}
-          x={h.x}
-          y={h.y}
-          width={h.w}
-          height={h.h}
-          transform={rotate(h)}
-          fill="rgba(248,111,165,0.4)"
-        />
+        <rect key={`fill-${i}`} x={h.x} y={h.y} width={h.w} height={h.h} fill="rgba(248,111,165,0.4)" />
       ))}
       <image href={resolveAssetUrl(frame.frameUrl)} width={width} height={height} preserveAspectRatio="none" />
       {holes.map((h, i) => (
-        <g key={`mark-${i}`} transform={rotate(h)}>
+        <g key={`mark-${i}`}>
           <rect
             x={h.x}
             y={h.y}
@@ -136,9 +141,31 @@ const FrameHolePreview: React.FC<{ frame: PhotoFrame; width: number; height: num
           </text>
         </g>
       ))}
+      {qr && (
+        <rect
+          x={(qr.x / 100) * width - qrSide / 2}
+          y={(qr.y / 100) * height - qrSide / 2}
+          width={qrSide}
+          height={qrSide}
+          fill="rgba(59,130,246,0.6)"
+          stroke="#ffffff"
+          strokeWidth={stroke}
+        />
+      )}
     </svg>
   );
 };
+
+/** Trạng thái của phiên tải frame mới. */
+interface UploadDraft {
+  file: File;
+  objectUrl: string;
+  width: number;
+  height: number;
+  autoHoles: DetectedHole[] | null;
+  ignoredEdgeRegions: number;
+  xmlFile: File | null;
+}
 
 export default function FramesPage() {
   const router = useRouter();
@@ -147,45 +174,49 @@ export default function FramesPage() {
   const [categories, setCategories] = useState<PhotoCategory[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // HiHiBooth Filters
+  // Bộ lọc thư viện
   const [activeLayoutTab, setActiveLayoutTab] = useState<string>('all');
-  const [filterCategory, setFilterCategory] = useState<number | undefined>(undefined);
-  const [searchKeyword, setSearchKeyword] = useState<string>('');
+  const [filterCategory, setFilterCategory] = useState<number | 'none' | undefined>(undefined);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [searchKeyword, setSearchKeyword] = useState('');
 
-  // Upload & Frame Builder Modal State
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [uploadActiveTab, setUploadActiveTab] = useState<'quick' | 'builder'>('quick');
-  const [submitting, setSubmitting] = useState(false);
+  // Tải frame mới
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [draft, setDraft] = useState<UploadDraft | null>(null);
+  const [draftHoles, setDraftHoles] = useState<DetectedHole[]>([]);
+  const [draftQr, setDraftQr] = useState<QrPlacement | null>(null);
   const [detecting, setDetecting] = useState(false);
-  const [fileList, setFileList] = useState<any[]>([]);
-  const [selectedXmlFile, setSelectedXmlFile] = useState<File | null>(null);
-  const [hasXmlImported, setHasXmlImported] = useState<boolean>(false);
-  const [previewPngUrl, setPreviewPngUrl] = useState<string | null>(null);
-  const [builderHoles, setBuilderHoles] = useState<DetectedHole[]>([]);
-  const [imageDims, setImageDims] = useState<{ w: number; h: number }>({ w: 2400, h: 3600 });
-  const [form] = Form.useForm();
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
+  const [layoutTouched, setLayoutTouched] = useState(false);
+  const [uploadForm] = Form.useForm();
+  const watchedUploadLayout: string | undefined = Form.useWatch('layoutId', uploadForm);
 
-  // Visual Hole Editor & Inspector Modal for Existing Frame
+  // Sửa toạ độ ô + QR của frame có sẵn
   const [editingFrame, setEditingFrame] = useState<PhotoFrame | null>(null);
   const [editingHoles, setEditingHoles] = useState<DetectedHole[]>([]);
-  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editingQr, setEditingQr] = useState<QrPlacement | null>(null);
+  const [isSavingHoles, setIsSavingHoles] = useState(false);
 
-  // Bulk toggle + metadata edit modal
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const [togglingId, setTogglingId] = useState<number | null>(null);
+  // Sửa thông tin frame
   const [metaFrame, setMetaFrame] = useState<PhotoFrame | null>(null);
   const [metaFile, setMetaFile] = useState<File | null>(null);
   const [isSavingMeta, setIsSavingMeta] = useState(false);
   const [metaForm] = Form.useForm();
 
-  const loadAll = async () => {
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+
+  const layoutById = useMemo(() => {
+    const map = new Map<string, PhotoLayout>();
+    layouts.forEach((l) => map.set(l.id.toLowerCase(), l));
+    return map;
+  }, [layouts]);
+  const findLayout = useCallback((id?: string) => (id ? layoutById.get(id.toLowerCase()) : undefined), [layoutById]);
+
+  const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [fData, lData, cData] = await Promise.all([
-        getFrames(),
-        getLayouts(),
-        getCategories(),
-      ]);
+      const [fData, lData, cData] = await Promise.all([getFrames(), getLayouts(), getCategories()]);
       setFrames(fData);
       setLayouts(lData);
       setCategories(cData);
@@ -195,151 +226,182 @@ export default function FramesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadAll();
-  }, []);
+  }, [loadAll]);
 
-  // Sync query param from /layouts page if present (e.g. ?layout=1x4)
+  // ?layout=1x4 từ trang Layouts
   useEffect(() => {
-    if (router.query.layout && typeof router.query.layout === 'string') {
-      setActiveLayoutTab(router.query.layout);
-    }
-  }, [router.query]);
+    if (typeof router.query.layout === 'string') setActiveLayoutTab(router.query.layout);
+  }, [router.query.layout]);
 
-  // Filtered frames based on tab, category and keyword
+  // Giải phóng object URL khi đổi file hoặc rời trang (không chạy khi chỉ nạp thêm template.xml)
+  const draftObjectUrl = draft?.objectUrl;
+  useEffect(
+    () => () => {
+      if (draftObjectUrl) URL.revokeObjectURL(draftObjectUrl);
+    },
+    [draftObjectUrl]
+  );
+
+  // ------------------------------------------------------------------ Library filtering
+
+  const tabFrames = useMemo(
+    () =>
+      activeLayoutTab === 'all'
+        ? frames
+        : frames.filter((f) => f.layoutId.toLowerCase() === activeLayoutTab.toLowerCase()),
+    [frames, activeLayoutTab]
+  );
+
   const filteredFrames = useMemo(() => {
-    return frames.filter((frame) => {
-      if (activeLayoutTab !== 'all' && frame.layoutId.toLowerCase() !== activeLayoutTab.toLowerCase()) {
-        return false;
-      }
-      if (filterCategory && frame.categoryId !== filterCategory) {
-        return false;
-      }
-      if (searchKeyword.trim()) {
-        const kw = searchKeyword.trim().toLowerCase();
-        return frame.name.toLowerCase().includes(kw) || frame.layoutId.toLowerCase().includes(kw);
-      }
+    const kw = searchKeyword.trim().toLowerCase();
+    return tabFrames.filter((f) => {
+      if (filterCategory === 'none' && f.categoryId != null) return false;
+      if (typeof filterCategory === 'number' && f.categoryId !== filterCategory) return false;
+      if (statusFilter === 'visible' && !f.isActive) return false;
+      if (statusFilter === 'hidden' && f.isActive) return false;
+      if (kw && !f.name.toLowerCase().includes(kw)) return false;
       return true;
     });
-  }, [frames, activeLayoutTab, filterCategory, searchKeyword]);
+  }, [tabFrames, filterCategory, statusFilter, searchKeyword]);
 
-  const handleOpenUpload = () => {
-    setFileList([]);
-    setSelectedXmlFile(null);
-    setHasXmlImported(false);
-    setPreviewPngUrl(null);
-    setBuilderHoles([]);
-    setImageDims({ w: 2400, h: 3600 });
-    setUploadActiveTab('quick');
-    form.resetFields();
-    form.setFieldsValue({
-      layoutId: layouts[0]?.id || '2x2',
-      categoryId: categories[0]?.id,
+  // Nhóm theo danh mục như thư viện frame của HiHiBooth
+  const groups = useMemo(() => {
+    const map = new Map<string, { key: string; label: string; frames: PhotoFrame[] }>();
+    filteredFrames.forEach((f) => {
+      const key = f.categoryId != null ? String(f.categoryId) : 'none';
+      if (!map.has(key)) map.set(key, { key, label: f.categoryName || 'Chưa phân loại', frames: [] });
+      map.get(key)!.frames.push(f);
+    });
+    return Array.from(map.values())
+      .map((g) => {
+        const layoutNames = Array.from(new Set(g.frames.map((f) => f.layoutName || f.layoutId)));
+        return { ...g, layoutsText: layoutNames.length === 1 ? layoutNames[0] : `${layoutNames.length} layout` };
+      })
+      .sort((a, b) => (a.key === 'none' ? 1 : b.key === 'none' ? -1 : a.label.localeCompare(b.label, 'vi')));
+  }, [filteredFrames]);
+
+  const hasFilters = !!searchKeyword.trim() || filterCategory !== undefined || statusFilter !== 'all';
+  const visibleCount = filteredFrames.filter((f) => f.isActive).length;
+  const hiddenCount = filteredFrames.length - visibleCount;
+
+  // ------------------------------------------------------------------ Upload flow
+
+  const resetUpload = () => {
+    setDraft(null);
+    setDraftHoles([]);
+    setDraftQr(null);
+    setUploadPercent(null);
+    setLayoutTouched(false);
+    uploadForm.resetFields();
+    uploadForm.setFieldsValue({
+      layoutId: activeLayoutTab !== 'all' ? findLayout(activeLayoutTab)?.id : layouts[0]?.id,
+      categoryId: typeof filterCategory === 'number' ? filterCategory : undefined,
       displayOrder: frames.length + 1,
       isActive: true,
-      holesJson: '[]',
+      enableOverlay: false,
     });
-    setIsUploadModalOpen(true);
   };
 
-  // Tự động phân tích file PNG khi người dùng chọn
-  const handlePngFileSelect = async (file: File) => {
-    const isPng = file.type === 'image/png' || file.name.endsWith('.png');
-    if (!isPng) {
-      message.error('Vui lòng chọn file hình ảnh PNG có nền trong suốt!');
+  const handleOpenUpload = () => {
+    if (layouts.length === 0) {
+      message.warning('Chưa có khổ ảnh nào. Hãy tạo layout trước khi thêm frame.');
+      return;
+    }
+    resetUpload();
+    setIsUploadOpen(true);
+  };
+
+  const handleCloseUpload = () => {
+    if (uploadPercent !== null) return; // đang tải lên
+    setIsUploadOpen(false);
+    setDraft(null);
+  };
+
+  const handlePickPng = async (file: File) => {
+    if (!/\.png$/i.test(file.name) || (file.type && file.type !== 'image/png')) {
+      message.error('Frame phải là ảnh PNG có vùng trong suốt cho ô ảnh.');
+      return;
+    }
+    if (file.size > MAX_FRAME_BYTES) {
+      message.error('File frame tối đa 30 MB.');
       return;
     }
 
-    setFileList([file]);
-    const objUrl = URL.createObjectURL(file);
-    setPreviewPngUrl(objUrl);
-
-    // Gợi ý tên khung từ tên file nếu chưa nhập
-    const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-    if (!form.getFieldValue('name')) {
-      form.setFieldsValue({ name: cleanName });
-    }
-
-    // Nếu đã nạp từ template.xml thì TUYỆT ĐỐI KHÔNG ghi đè tọa độ từ quét ảnh
-    if (hasXmlImported && builderHoles.length > 0) {
-      message.info('Đang giữ nguyên tọa độ chuẩn từ template.xml đã nạp!');
-      return;
-    }
-
-    // Tự động chạy thuật toán quét ô trong suốt (Auto-Detect Transparent Holes)
+    setDetecting(true);
     try {
-      setDetecting(true);
       const res = await detectTransparentHoles(file);
-      setImageDims({ w: res.imageWidth, h: res.imageHeight });
+      const objectUrl = URL.createObjectURL(file);
+      const keepXmlHoles = !!draft?.xmlFile;
+      setDraft((prev) => ({
+        file,
+        objectUrl,
+        width: res.imageWidth,
+        height: res.imageHeight,
+        autoHoles: res.holes,
+        ignoredEdgeRegions: res.ignoredEdgeRegions,
+        xmlFile: prev?.xmlFile ?? null,
+      }));
+      if (!keepXmlHoles) setDraftHoles(res.holes.map((h) => ({ ...h })));
+
+      if (!uploadForm.getFieldValue('name')) {
+        uploadForm.setFieldValue('name', file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim());
+      }
+      if (!layoutTouched) {
+        const suggested = suggestLayout(layouts, res.imageWidth, res.imageHeight, res.holes.length);
+        if (suggested) uploadForm.setFieldValue('layoutId', suggested.id);
+      }
 
       if (res.holes.length > 0) {
-        setBuilderHoles(res.holes);
-        form.setFieldsValue({
-          holesJson: JSON.stringify(res.holes, null, 2),
-        });
-
-        // Gợi ý layout phù hợp theo tỷ lệ ảnh
-        if (res.imageWidth > res.imageHeight && layouts.some((l) => l.id.toLowerCase() === '6x4')) {
-          form.setFieldsValue({ layoutId: '6x4' });
-        } else if (res.imageHeight > res.imageWidth * 2.2 && layouts.some((l) => l.id.toLowerCase() === '1x4' || l.id.toLowerCase() === '2x6')) {
-          form.setFieldsValue({ layoutId: '1x4' });
-        } else if (layouts.some((l) => l.id.toLowerCase() === '2x2')) {
-          form.setFieldsValue({ layoutId: '2x2' });
-        }
-
-        message.success(
-          `Đã tự động nhận diện được ${res.holes.length} ô ảnh trong suốt (${res.imageWidth}x${res.imageHeight}px)!`
-        );
+        message.success(`Tìm thấy ${res.holes.length} ô trong suốt (${res.imageWidth}×${res.imageHeight}px).`);
       } else {
-        message.info(
-          'Chưa phát hiện được ô trong suốt rõ ràng. Bạn có thể bấm "Import template.xml" hoặc dùng tab "Visual Builder" để kéo thả.'
-        );
+        message.warning('Không tìm thấy ô trong suốt. Hãy dùng chế độ "Vẽ ô" để tạo ô thủ công.');
       }
     } catch (err: any) {
-      console.warn('Auto detect failed:', err);
+      console.error(err);
+      message.error(err?.message || 'Không phân tích được file PNG.');
     } finally {
       setDetecting(false);
     }
   };
 
-  // Import từ template.xml (kho D:\WORK\Frames hoặc Tool_Create_Frame)
-  const handleXmlImport = (file: File) => {
-    setSelectedXmlFile(file);
+  const handlePickXml = (file: File) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = () => {
       try {
-        const text = e.target?.result as string;
-        const parsed = parseTemplateXml(text);
-
-        // Map layout
-        let matchedLayout = layouts.find(
-          (l) => l.id.toLowerCase() === parsed.layout.toLowerCase()
-        )?.id;
-        if (!matchedLayout) {
-          if (parsed.holes.length === 6) matchedLayout = '2x3';
-          else if (parsed.holes.length === 4 && parsed.width < parsed.height * 0.4) matchedLayout = '1x4';
-          else matchedLayout = '2x2';
-        }
-
-        form.setFieldsValue({
-          name: parsed.name !== 'Untitled-Frame' && parsed.name !== 'Untitled Frame'
-            ? parsed.name
-            : form.getFieldValue('name') || parsed.name,
-          layoutId: matchedLayout,
-          holesJson: JSON.stringify(parsed.holes, null, 2),
-        });
-
-        setBuilderHoles(parsed.holes);
-        setImageDims({ w: parsed.width, h: parsed.height });
-        setHasXmlImported(true);
-
-        message.success(
-          `Đã nạp template.xml: Khổ ${parsed.layout} (${parsed.width}x${parsed.height}), ${parsed.holes.length} ô ảnh lồng!`
+        const parsed = parseTemplateXml(String(reader.result || ''));
+        // Quy đổi toạ độ template về kích thước PNG đang chọn
+        const sx = draft && parsed.width ? draft.width / parsed.width : 1;
+        const sy = draft && parsed.height ? draft.height / parsed.height : 1;
+        setDraftHoles(
+          parsed.holes.map((h) => ({
+            x: Math.round(h.x * sx),
+            y: Math.round(h.y * sy),
+            w: Math.round(h.w * sx),
+            h: Math.round(h.h * sy),
+            rotation: h.rotation ?? 0,
+          }))
         );
+        if (parsed.qrCode && parsed.width && parsed.height) {
+          setDraftQr({
+            x: Math.round(((parsed.qrCode.x + parsed.qrCode.w / 2) / parsed.width) * 1000) / 10,
+            y: Math.round(((parsed.qrCode.y + parsed.qrCode.h / 2) / parsed.height) * 1000) / 10,
+            size: Math.max(5, Math.min(40, Math.round((parsed.qrCode.w / parsed.width) * 100))),
+          });
+        }
+        if (parsed.name && !/untitled/i.test(parsed.name)) uploadForm.setFieldValue('name', parsed.name);
+        const layout = findLayout(parsed.layout);
+        if (layout) {
+          uploadForm.setFieldValue('layoutId', layout.id);
+          setLayoutTouched(true);
+        }
+        setDraft((prev) => (prev ? { ...prev, xmlFile: file } : prev));
+        message.success(`Đã nạp template.xml: ${parsed.holes.length} ô ảnh${parsed.qrCode ? ' và vị trí QR' : ''}.`);
       } catch (err: any) {
-        message.error('Lỗi khi đọc file template.xml: ' + (err.message || 'File không hợp lệ'));
+        message.error('Không đọc được template.xml: ' + (err?.message || 'file không hợp lệ'));
       }
     };
     reader.readAsText(file);
@@ -347,145 +409,132 @@ export default function FramesPage() {
   };
 
   const handleUploadSubmit = async () => {
+    if (!draft) {
+      message.warning('Hãy chọn file PNG frame.');
+      return;
+    }
+    let vals: any;
     try {
-      const vals = await form.validateFields();
-      if (fileList.length === 0) {
-        message.error('Vui lòng chọn hoặc kéo thả file ảnh PNG viền khung!');
-        return;
-      }
+      vals = await uploadForm.validateFields();
+    } catch {
+      return;
+    }
+    if (draftHoles.length === 0) {
+      message.warning('Frame chưa có ô ảnh nào. Hãy vẽ ít nhất một ô.');
+      return;
+    }
 
-      setSubmitting(true);
-      const formData = new FormData();
-      formData.append('file', fileList[0].originFileObj || fileList[0]);
-      formData.append('layoutId', vals.layoutId);
-      formData.append('name', vals.name);
-      if (vals.categoryId) formData.append('categoryId', vals.categoryId.toString());
-      formData.append('holesJson', JSON.stringify(builderHoles));
-      formData.append('displayOrder', (vals.displayOrder || 0).toString());
-      formData.append('isActive', (vals.isActive ?? true).toString());
+    const formData = new FormData();
+    formData.append('file', draft.file);
+    formData.append('name', vals.name.trim());
+    formData.append('layoutId', vals.layoutId);
+    if (vals.categoryId != null) formData.append('categoryId', String(vals.categoryId));
+    formData.append('displayOrder', String(vals.displayOrder ?? 0));
+    formData.append('isActive', String(!!vals.isActive));
+    formData.append('enableOverlay', String(!!vals.enableOverlay));
+    // Toạ độ đã chỉnh trên client gửi kèm fw/fh; server quy đổi về pixel PNG nếu cần.
+    // Không gửi template.xml để server không ghi đè các chỉnh sửa thủ công.
+    formData.append('holesJson', holesMetadataJson(draftHoles, draft.width, draft.height));
+    if (draftQr) appendQr(formData, draftQr);
 
-      // Gửi kèm file XML nếu có để backend lưu vết và phân tích trực tiếp
-      if (selectedXmlFile) {
-        formData.append('xmlFile', selectedXmlFile);
-      }
-
-      const created = await createFrame(formData);
-      setIsUploadModalOpen(false);
+    setUploadPercent(0);
+    try {
+      const created = await createFrame(formData, setUploadPercent);
+      setUploadPercent(100);
+      message.success(`Đã tải lên "${created.name}" với ${created.holes.length} ô ảnh.`);
+      setIsUploadOpen(false);
+      setDraft(null);
       loadAll();
-
-      // Mở ngay trình sửa toạ độ nếu số lỗ nhận diện được chưa khớp với khổ ảnh
-      const createdHoles = created.holes || [];
-      const expected = layouts.find((l) => l.id.toLowerCase() === created.layoutId.toLowerCase())?.holeCount;
-      const needsReview = createdHoles.length === 0 || (expected != null && createdHoles.length !== expected);
-      if (needsReview) {
-        message.warning(
-          createdHoles.length === 0
-            ? 'Đã lưu frame nhưng chưa có toạ độ lỗ. Hãy đặt các ô lồng ảnh.'
-            : `Đã lưu frame với ${createdHoles.length} lỗ, khổ ${created.layoutId} cần ${expected}. Hãy kiểm tra lại.`
-        );
-        handleOpenEditHoles(created);
-      } else {
-        message.success('Đã tạo và lưu khung ảnh thành công!');
-      }
     } catch (err: any) {
-      if (err?.errorFields) return;
       console.error(err);
-      message.error(errorMessage(err, 'Lỗi khi tải khung ảnh lên máy chủ.'));
+      message.error(errorMessage(err, 'Có lỗi khi tải khung ảnh lên máy chủ. Vui lòng thử lại.'));
     } finally {
-      setSubmitting(false);
+      setUploadPercent(null);
     }
   };
 
-  // Mở modal Visual Inspector & Editor cho khung hiện có
+  // ------------------------------------------------------------------ Existing frame actions
+
   const handleOpenEditHoles = (frame: PhotoFrame) => {
     setEditingFrame(frame);
-    setEditingHoles(frame.holes || []);
+    setEditingHoles((frame.holes || []).map((h) => ({ ...h })));
+    setEditingQr(qrOfFrame(frame));
   };
 
-  // Lưu tọa độ đã sửa cho khung hiện có
-  const handleSaveEditedHoles = async () => {
+  const handleSaveHoles = async () => {
     if (!editingFrame) return;
+    const { w, h } = frameSize(editingFrame, findLayout(editingFrame.layoutId));
+    const formData = new FormData();
+    formData.append('holesJson', holesMetadataJson(editingHoles, w, h));
+    appendQr(formData, editingQr);
+    setIsSavingHoles(true);
     try {
-      setIsSavingEdit(true);
-      await updateFrame(editingFrame.id, buildFrameFormData(editingFrame, editingHoles));
-      message.success(`Đã cập nhật tọa độ cho khung '${editingFrame.name}' thành công!`);
+      const saved = await updateFrame(editingFrame.id, formData);
+      setFrames((prev) => prev.map((f) => (f.id === saved.id ? saved : f)));
+      message.success(`Đã lưu toạ độ cho "${saved.name}".`);
       setEditingFrame(null);
-      loadAll();
     } catch (err: any) {
       console.error(err);
-      message.error(errorMessage(err, 'Không thể lưu tọa độ mới.'));
+      message.error(errorMessage(err, 'Không thể lưu toạ độ mới.'));
     } finally {
-      setIsSavingEdit(false);
+      setIsSavingHoles(false);
     }
   };
 
-  const handleDeleteFrame = async (id: number) => {
-    try {
-      await deleteFrame(id);
-      message.success('Đã xoá khung ảnh khỏi hệ thống!');
-      loadAll();
-    } catch (err: any) {
-      console.error(err);
-      message.error(errorMessage(err, 'Không thể xoá khung ảnh.'));
-    }
-  };
-
-  const handleToggleFrameActive = async (frame: PhotoFrame, checked: boolean) => {
+  const handleToggleActive = async (frame: PhotoFrame, checked: boolean) => {
     setTogglingId(frame.id);
     try {
-      await updateFrame(frame.id, buildFrameFormData({ ...frame, isActive: checked }));
-      setFrames((prev) => prev.map((f) => (f.id === frame.id ? { ...f, isActive: checked } : f)));
-      message.success(`Đã ${checked ? 'bật' : 'tắt'} khung ${frame.name}!`);
+      const formData = new FormData();
+      formData.append('isActive', String(checked));
+      const saved = await updateFrame(frame.id, formData);
+      setFrames((prev) => prev.map((f) => (f.id === saved.id ? saved : f)));
+      message.success(checked ? `Đã hiện "${frame.name}".` : `Đã ẩn "${frame.name}" khỏi màn chọn khung.`);
     } catch (err: any) {
       console.error(err);
-      message.error(errorMessage(err, 'Không thể cập nhật trạng thái khung.'));
+      message.error(errorMessage(err, 'Không thể cập nhật trạng thái frame.'));
     } finally {
       setTogglingId(null);
     }
   };
 
-  // Bật/tắt hàng loạt các frame đang hiển thị theo bộ lọc hiện tại
-  const allVisibleActive = filteredFrames.length > 0 && filteredFrames.every((f) => f.isActive);
-  const bulkNextState = !allVisibleActive;
-  const bulkTargets = filteredFrames.filter((f) => f.isActive !== bulkNextState);
-
-  const handleBulkToggle = async () => {
-    if (bulkTargets.length === 0) return;
-    setBulkBusy(true);
-    const succeeded = new Set<number>();
-    let failed = 0;
-    try {
-      for (let i = 0; i < bulkTargets.length; i += BULK_CONCURRENCY) {
-        const batch = bulkTargets.slice(i, i + BULK_CONCURRENCY);
-        const results = await Promise.allSettled(
-          batch.map((f) => updateFrame(f.id, buildFrameFormData({ ...f, isActive: bulkNextState })))
-        );
-        results.forEach((r, idx) => {
-          if (r.status === 'fulfilled') succeeded.add(batch[idx].id);
-          else {
-            failed += 1;
-            console.error(r.reason);
-          }
-        });
-      }
-      setFrames((prev) => prev.map((f) => (succeeded.has(f.id) ? { ...f, isActive: bulkNextState } : f)));
-      const verb = bulkNextState ? 'bật' : 'tắt';
-      if (failed === 0) message.success(`Đã ${verb} ${succeeded.size} khung.`);
-      else message.warning(`Đã ${verb} ${succeeded.size} khung, ${failed} khung cập nhật thất bại.`);
-    } finally {
-      setBulkBusy(false);
-    }
+  const handleBulk = (makeVisible: boolean) => {
+    const targets = filteredFrames.filter((f) => f.isActive !== makeVisible);
+    if (targets.length === 0) return;
+    Modal.confirm({
+      title: makeVisible ? `Hiện ${targets.length} frame đang ẩn?` : `Ẩn ${targets.length} frame đang hiển thị?`,
+      content: `Áp dụng cho các frame khớp bộ lọc hiện tại. ${
+        makeVisible ? 'Các frame này sẽ xuất hiện lại trên màn chọn khung.' : 'Các frame này sẽ bị ẩn khỏi màn chọn khung.'
+      }`,
+      okText: makeVisible ? 'Hiện tất cả' : 'Ẩn tất cả',
+      cancelText: 'Hủy',
+      okButtonProps: { danger: !makeVisible },
+      async onOk() {
+        setBulkBusy(true);
+        try {
+          const updated = await bulkFrameVisibility(makeVisible, targets.map((f) => f.id));
+          const ids = new Set(targets.map((f) => f.id));
+          setFrames((prev) => prev.map((f) => (ids.has(f.id) ? { ...f, isActive: makeVisible } : f)));
+          message.success(makeVisible ? `Đã hiện ${updated} frame.` : `Đã ẩn ${updated} frame.`);
+        } catch (err: any) {
+          console.error(err);
+          message.error(errorMessage(err, 'Cập nhật hàng loạt thất bại. Vui lòng thử lại.'));
+        } finally {
+          setBulkBusy(false);
+        }
+      },
+    });
   };
 
-  const handleOpenEditMeta = (frame: PhotoFrame) => {
+  const handleOpenMeta = (frame: PhotoFrame) => {
     setMetaFrame(frame);
     setMetaFile(null);
     metaForm.setFieldsValue({
       name: frame.name,
-      layoutId: frame.layoutId,
+      layoutId: findLayout(frame.layoutId)?.id ?? frame.layoutId,
       categoryId: frame.categoryId ?? undefined,
       displayOrder: frame.displayOrder,
       isActive: frame.isActive,
+      enableOverlay: frame.enableOverlay,
     });
   };
 
@@ -497,82 +546,106 @@ export default function FramesPage() {
     } catch {
       return;
     }
+    const formData = new FormData();
+    formData.append('name', vals.name.trim());
+    formData.append('layoutId', vals.layoutId);
+    if (vals.categoryId != null) formData.append('categoryId', String(vals.categoryId));
+    else formData.append('clearCategory', 'true');
+    formData.append('displayOrder', String(vals.displayOrder ?? 0));
+    formData.append('isActive', String(!!vals.isActive));
+    formData.append('enableOverlay', String(!!vals.enableOverlay));
+    if (metaFile) formData.append('file', metaFile);
+
     setIsSavingMeta(true);
     try {
-      const formData = buildFrameFormData({
-        name: vals.name.trim(),
-        layoutId: vals.layoutId,
-        categoryId: vals.categoryId ?? undefined,
-        displayOrder: vals.displayOrder ?? 0,
-        isActive: !!vals.isActive,
-      });
-      if (metaFile) formData.append('file', metaFile);
-      await updateFrame(metaFrame.id, formData);
-      message.success(`Đã cập nhật khung '${vals.name.trim()}'.`);
+      const saved = await updateFrame(metaFrame.id, formData);
       setMetaFrame(null);
+      message.success(`Đã lưu thay đổi cho "${saved.name}".`);
+      if (metaFile && metaFrame.frameWidth && saved.frameWidth !== metaFrame.frameWidth) {
+        message.info('File PNG mới khác kích thước, toạ độ ô đã được co giãn theo. Hãy kiểm tra lại.');
+      }
       loadAll();
     } catch (err: any) {
       console.error(err);
-      message.error(errorMessage(err, 'Không thể cập nhật khung ảnh.'));
+      message.error(errorMessage(err, 'Không lưu được thay đổi frame.'));
     } finally {
       setIsSavingMeta(false);
     }
   };
 
+  const handleDelete = async (frame: PhotoFrame) => {
+    try {
+      await deleteFrame(frame.id);
+      setFrames((prev) => prev.filter((f) => f.id !== frame.id));
+      message.success(`Đã xoá "${frame.name}".`);
+    } catch (err: any) {
+      console.error(err);
+      message.error(errorMessage(err, 'Không thể xoá frame. Vui lòng thử lại.'));
+    }
+  };
+
+  // ------------------------------------------------------------------ Derived values for modals
+
+  const uploadLayout = findLayout(watchedUploadLayout);
+  const aspectMismatch =
+    draft && uploadLayout
+      ? Math.abs(draft.width / draft.height - uploadLayout.widthPx / uploadLayout.heightPx) /
+          (uploadLayout.widthPx / uploadLayout.heightPx) >
+        0.02
+      : false;
+
+  const editingLayout = editingFrame ? findLayout(editingFrame.layoutId) : undefined;
+  const editingSize = editingFrame ? frameSize(editingFrame, editingLayout) : { w: 2400, h: 3600 };
+
   return (
     <div>
-      {/* Page Header */}
+      {/* Header */}
       <div className="hb-page-header" style={{ marginBottom: 16 }}>
         <div>
           <h1 className="hb-page-title">Quản Lý Khung Ảnh (Frames)</h1>
           <div className="hb-page-subtitle">
-            Quản lý viền khung PNG theo khổ ảnh và danh mục, bật/tắt hàng loạt và chỉnh toạ độ lỗ lồng ảnh.
+            Tải PNG có vùng trong suốt, hệ thống tự đục ô ảnh; chỉnh ô, đặt QR rồi lưu lên máy chụp.
           </div>
         </div>
         <Space wrap>
           <Button icon={<ReloadOutlined />} onClick={loadAll} loading={loading}>
             Làm mới
           </Button>
-          <Popconfirm
-            title={`${bulkNextState ? 'Bật' : 'Tắt'} ${bulkTargets.length} khung đang hiển thị?`}
-            description="Áp dụng cho các khung khớp tab, danh mục và từ khoá hiện tại."
-            onConfirm={handleBulkToggle}
-            okText={bulkNextState ? 'Bật tất cả' : 'Tắt tất cả'}
-            cancelText="Hủy"
-            okButtonProps={{ danger: !bulkNextState }}
-            disabled={bulkTargets.length === 0}
-          >
-            <Button icon={<PoweroffOutlined />} loading={bulkBusy} disabled={bulkTargets.length === 0}>
-              {bulkNextState ? 'Bật Tất Cả' : 'Tắt Tất Cả'}
-            </Button>
-          </Popconfirm>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenUpload}>
             Tải Lên Frame Mới
           </Button>
         </Space>
       </div>
 
-      {/* HiHiBooth Horizontal Layout Tabs Bar */}
-      <div
-        style={{
-          background: '#ffffff',
-          padding: '4px 16px',
-          borderRadius: 12,
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          marginBottom: 16,
-        }}
-      >
+      {/* Tóm tắt */}
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        {[
+          { label: 'Frame trong danh sách', value: filteredFrames.length },
+          { label: 'Đang hiển thị', value: visibleCount },
+          { label: 'Đang ẩn', value: hiddenCount },
+          { label: 'Layout khác nhau', value: new Set(filteredFrames.map((f) => f.layoutId)).size },
+        ].map((s) => (
+          <Col xs={12} md={6} key={s.label}>
+            <div className="hb-card" style={{ padding: '12px 16px' }}>
+              <div className="hb-hint">{s.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: '#0f172a' }}>{s.value}</div>
+            </div>
+          </Col>
+        ))}
+      </Row>
+
+      {/* Tabs theo khổ ảnh */}
+      <div className="hb-card" style={{ padding: '4px 16px', marginBottom: 12 }}>
         <Tabs
           activeKey={activeLayoutTab}
           onChange={setActiveLayoutTab}
-          style={{ marginBottom: 0 }}
           items={[
             {
               key: 'all',
               label: (
                 <Space>
                   <span>Tất cả</span>
-                  <Badge count={frames.length} style={{ backgroundColor: '#94a3b8' }} />
+                  <Badge count={frames.length} showZero style={{ backgroundColor: '#94a3b8' }} />
                 </Space>
               ),
             },
@@ -583,10 +656,7 @@ export default function FramesPage() {
                 label: (
                   <Space>
                     <b>{l.name}</b>
-                    <Tag color="magenta" style={{ margin: 0, fontSize: 11, padding: '0 5px' }}>
-                      {l.id}
-                    </Tag>
-                    <Badge count={count} style={{ backgroundColor: count > 0 ? '#f86fa5' : '#cbd5e1' }} />
+                    <Badge count={count} showZero style={{ backgroundColor: count > 0 ? '#f86fa5' : '#cbd5e1' }} />
                   </Space>
                 ),
               };
@@ -595,158 +665,425 @@ export default function FramesPage() {
         />
       </div>
 
-      {/* Secondary Filter & Search Bar */}
-      <Card
-        style={{ marginBottom: 20, borderRadius: 12, border: 'none', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
-        bodyStyle={{ padding: '12px 16px' }}
-      >
-        <Row gutter={[16, 12]} align="middle">
-          <Col xs={24} md={8}>
+      {/* Bộ lọc + thao tác hàng loạt */}
+      <div className="hb-card" style={{ padding: '12px 16px', marginBottom: 20 }}>
+        <Row gutter={[12, 12]} align="middle">
+          <Col xs={24} md={7}>
             <Input
               prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              placeholder="Tìm kiếm khung theo tên..."
+              placeholder="Tìm tên frame..."
               allowClear
               value={searchKeyword}
               onChange={(e) => setSearchKeyword(e.target.value)}
             />
           </Col>
-          <Col xs={24} md={8}>
-            <Space align="center" style={{ width: '100%' }}>
-              <span style={{ fontSize: 13, fontWeight: 500, color: '#475569', whiteSpace: 'nowrap' }}>
-                Danh mục:
-              </span>
-              <Select
-                style={{ minWidth: 200 }}
-                placeholder="Tất cả danh mục"
-                allowClear
-                value={filterCategory}
-                onChange={(val) => setFilterCategory(val)}
-                options={categories.map((c) => ({ label: c.name, value: c.id }))}
-              />
-            </Space>
+          <Col xs={12} md={5}>
+            <Select<number | 'none'>
+              style={{ width: '100%' }}
+              placeholder="Danh mục"
+              allowClear
+              value={filterCategory}
+              onChange={(v) => setFilterCategory(v)}
+              options={[
+                ...categories.map((c) => ({ label: c.name, value: c.id as number | 'none' })),
+                { label: 'Chưa phân loại', value: 'none' as const },
+              ]}
+            />
+          </Col>
+          <Col xs={12} md={4}>
+            <Select<StatusFilter>
+              style={{ width: '100%' }}
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { label: 'Mọi trạng thái', value: 'all' },
+                { label: 'Đang hiển thị', value: 'visible' },
+                { label: 'Đang ẩn', value: 'hidden' },
+              ]}
+            />
           </Col>
           <Col xs={24} md={8} style={{ textAlign: 'right' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Hiển thị <b>{filteredFrames.length}</b> / {frames.length} khung ảnh
-              {filteredFrames.length > 0 && (
-                <> · <b>{filteredFrames.filter((f) => f.isActive).length}</b> đang bật</>
+            <Space wrap>
+              {hasFilters && (
+                <Button
+                  type="link"
+                  onClick={() => {
+                    setSearchKeyword('');
+                    setFilterCategory(undefined);
+                    setStatusFilter('all');
+                  }}
+                >
+                  Xoá lọc
+                </Button>
               )}
-            </Text>
+              <Button icon={<PoweroffOutlined />} loading={bulkBusy} disabled={hiddenCount === 0} onClick={() => handleBulk(true)}>
+                Hiện tất cả
+              </Button>
+              <Button danger loading={bulkBusy} disabled={visibleCount === 0} onClick={() => handleBulk(false)}>
+                Ẩn tất cả
+              </Button>
+            </Space>
           </Col>
         </Row>
-      </Card>
+      </div>
 
-      {/* Frame Cards Grid */}
+      {/* Thư viện frame */}
       {loading && frames.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
+        <div style={{ textAlign: 'center', padding: 60 }}>
+          <Spin size="large" />
+        </div>
       ) : filteredFrames.length === 0 ? (
         <div className="hb-card" style={{ textAlign: 'center', padding: 40 }}>
           <Empty
             description={
               frames.length === 0
-                ? "Chưa có khung ảnh nào. Nhấn 'Tải Lên Frame Mới' để thêm từ PNG hoặc template.xml."
-                : 'Không có khung ảnh nào khớp bộ lọc hiện tại.'
+                ? "Chưa có khung ảnh nào. Nhấn 'Tải Lên Frame Mới' để thêm frame PNG."
+                : 'Không tìm thấy khung ảnh nào phù hợp.'
             }
           />
         </div>
       ) : (
-        <Row gutter={[20, 20]}>
-          {filteredFrames.map((frame) => {
-            const holeCount = frame.holes?.length || 0;
-            const targetLayout = layouts.find((l) => l.id.toLowerCase() === frame.layoutId.toLowerCase());
-            const canvasW = targetLayout?.widthPx || 2400;
-            const canvasH = targetLayout?.heightPx || 3600;
-            const holeMismatch = targetLayout != null && holeCount !== targetLayout.holeCount;
-
-            return (
-              <Col xs={24} sm={12} md={8} lg={6} key={frame.id}>
-                <div className={`hb-hover-card${frame.isActive ? '' : ' is-inactive'}`}>
-                  <div
-                    className="frame-card-media hb-checkerboard"
-                    onClick={() => handleOpenEditHoles(frame)}
-                    title="Bấm để xem và sửa toạ độ các ô lồng ảnh"
-                  >
-                    <div className="hb-card-media" style={{ width: '100%', height: '100%' }}>
-                      <FrameHolePreview frame={frame} width={canvasW} height={canvasH} />
-                    </div>
-                    <div className="hb-card-badges">
-                      <Tag color="magenta" style={{ margin: 0, fontWeight: 700 }}>
-                        {frame.layoutId}
-                      </Tag>
-                      {frame.categoryName && (
-                        <Tag color="blue" style={{ margin: 0 }}>
-                          {frame.categoryName}
-                        </Tag>
-                      )}
-                    </div>
-                    <div className="hb-card-switch">
-                      <Switch
-                        size="small"
-                        checked={frame.isActive}
-                        loading={togglingId === frame.id}
-                        aria-label={`Bật/tắt khung ${frame.name}`}
-                        onChange={(checked) => handleToggleFrameActive(frame, checked)}
-                        onClick={(_, e) => e.stopPropagation()}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="hb-card-body">
-                    <div className="hb-card-name" title={frame.name}>
-                      {frame.name}
-                    </div>
-                    <div className="hb-card-meta">
-                      <Tag
-                        color={holeCount === 0 ? 'error' : holeMismatch ? 'warning' : 'success'}
-                        style={{ margin: 0 }}
+        groups.map((group) => (
+          <section key={group.key} style={{ marginBottom: 28 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{group.label}</h2>
+              <span className="hb-hint">
+                {group.frames.length} frame · {group.layoutsText}
+              </span>
+            </div>
+            <Row gutter={[20, 20]}>
+              {group.frames.map((frame) => {
+                const layout = findLayout(frame.layoutId);
+                const { w, h } = frameSize(frame, layout);
+                const holeCount = frame.holes?.length || 0;
+                const mismatch = layout != null && holeCount !== layout.holeCount;
+                return (
+                  <Col xs={24} sm={12} md={8} xl={6} key={frame.id}>
+                    <div className={`hb-hover-card${frame.isActive ? '' : ' is-inactive'}`}>
+                      <div
+                        className="frame-card-media hb-checkerboard"
+                        onClick={() => handleOpenEditHoles(frame)}
+                        title="Bấm để chỉnh ô ảnh và vị trí QR"
                       >
-                        {holeCount === 0 ? 'Chưa có toạ độ lỗ' : `${holeCount} toạ độ lỗ`}
-                      </Tag>
-                      <span>{canvasW}x{canvasH} px</span>
-                    </div>
-                  </div>
+                        <div className="hb-card-media" style={{ width: '100%', height: '100%' }}>
+                          <FrameHolePreview frame={frame} width={w} height={h} />
+                        </div>
+                        <div className="hb-card-badges">
+                          <Tag color="magenta" style={{ margin: 0, fontWeight: 700 }}>
+                            {layout?.name || frame.layoutId}
+                          </Tag>
+                          {!frame.isActive && (
+                            <Tag color="default" style={{ margin: 0 }}>
+                              Đang ẩn
+                            </Tag>
+                          )}
+                          {frame.enableOverlay && (
+                            <Tag color="purple" icon={<VideoCameraOutlined />} style={{ margin: 0 }}>
+                              Overlay
+                            </Tag>
+                          )}
+                        </div>
+                        <div className="hb-card-switch">
+                          <Switch
+                            size="small"
+                            checked={frame.isActive}
+                            loading={togglingId === frame.id}
+                            aria-label={`Hiện/ẩn frame ${frame.name}`}
+                            onChange={(checked) => handleToggleActive(frame, checked)}
+                            onClick={(_, e) => e.stopPropagation()}
+                          />
+                        </div>
+                      </div>
 
-                  <div className="hb-card-actions">
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<AimOutlined />}
-                      onClick={() => handleOpenEditHoles(frame)}
-                      style={{ color: '#ec4899' }}
-                    >
-                      Sửa toạ độ lỗ
-                    </Button>
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<EditOutlined />}
-                      onClick={() => handleOpenEditMeta(frame)}
-                    >
-                      Sửa
-                    </Button>
-                    <Popconfirm
-                      title="Xóa khung ảnh này?"
-                      description="Khung ảnh sẽ bị xóa khỏi hệ thống và kho lưu trữ. Không thể hoàn tác."
-                      onConfirm={() => handleDeleteFrame(frame.id)}
-                      okText="Xóa"
-                      cancelText="Hủy"
-                      okButtonProps={{ danger: true }}
-                    >
-                      <Button type="text" size="small" danger icon={<DeleteOutlined />}>
-                        Xóa
-                      </Button>
-                    </Popconfirm>
-                  </div>
-                </div>
-              </Col>
-            );
-          })}
-        </Row>
+                      <div className="hb-card-body">
+                        <div className="hb-card-name" title={frame.name}>
+                          {frame.name}
+                        </div>
+                        <div className="hb-card-meta">
+                          <Tag color={holeCount === 0 ? 'error' : mismatch ? 'warning' : 'success'} style={{ margin: 0 }}>
+                            {holeCount === 0
+                              ? 'Chưa có ô ảnh'
+                              : `${holeCount} ô ảnh${mismatch && layout ? ` / cần ${layout.holeCount}` : ''}`}
+                          </Tag>
+                          <span>
+                            {w}×{h}px{qrOfFrame(frame) ? ' · QR' : ''}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="hb-card-actions">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<AimOutlined />}
+                          onClick={() => handleOpenEditHoles(frame)}
+                          style={{ color: '#ec4899' }}
+                        >
+                          Ô &amp; QR
+                        </Button>
+                        <Button type="text" size="small" icon={<EditOutlined />} onClick={() => handleOpenMeta(frame)}>
+                          Sửa
+                        </Button>
+                        <Popconfirm
+                          title={`Xoá frame "${frame.name}"?`}
+                          description="Frame bị xoá khỏi hệ thống và kho lưu trữ. Không thể hoàn tác."
+                          onConfirm={() => handleDelete(frame)}
+                          okText="Xoá"
+                          cancelText="Hủy"
+                          okButtonProps={{ danger: true }}
+                        >
+                          <Button type="text" size="small" danger icon={<DeleteOutlined />}>
+                            Xoá
+                          </Button>
+                        </Popconfirm>
+                      </div>
+                    </div>
+                  </Col>
+                );
+              })}
+            </Row>
+          </section>
+        ))
       )}
 
-      {/* Frame metadata edit modal */}
+      {/* ------------------------------------------------------------------ Upload modal */}
       <Modal
-        title={`Chỉnh Sửa Khung: ${metaFrame?.name ?? ''}`}
+        title="Tải lên khung ảnh"
+        open={isUploadOpen}
+        onCancel={handleCloseUpload}
+        width={draft ? 1120 : 720}
+        maskClosable={false}
+        footer={
+          draft
+            ? [
+                <Button key="cancel" onClick={handleCloseUpload} disabled={uploadPercent !== null}>
+                  Hủy bỏ
+                </Button>,
+                <Button
+                  key="submit"
+                  type="primary"
+                  icon={<UploadOutlined />}
+                  loading={uploadPercent !== null}
+                  onClick={handleUploadSubmit}
+                >
+                  {uploadPercent !== null ? `Đang tải lên ${uploadPercent}%` : 'Lưu và tải lên hệ thống'}
+                </Button>,
+              ]
+            : null
+        }
+        forceRender
+      >
+        {!draft && (
+          <div>
+            <div className="hb-hint" style={{ marginBottom: 10 }}>
+              Dùng ảnh PNG có vùng trong suốt cho ô ảnh. Chọn kích thước file theo bố cục bạn dùng (rộng × cao):
+            </div>
+            <Row gutter={12} style={{ marginBottom: 16 }}>
+              {FRAME_SIZE_GUIDE.map((g) => (
+                <Col span={8} key={g.label}>
+                  <div className="hb-card" style={{ padding: 12, textAlign: 'center' }}>
+                    <div
+                      style={{
+                        margin: '0 auto 8px',
+                        width: (g.w / Math.max(g.w, g.h)) * 48,
+                        height: (g.h / Math.max(g.w, g.h)) * 48,
+                        border: '2px solid #f86fa5',
+                        borderRadius: 3,
+                        background: '#fdf2f8',
+                      }}
+                    />
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{g.label}</div>
+                    <div className="hb-hint">{g.size}</div>
+                  </div>
+                </Col>
+              ))}
+            </Row>
+            <Spin spinning={detecting} tip="Đang phân tích ô trong suốt...">
+              <Upload.Dragger
+                accept=".png,image/png"
+                showUploadList={false}
+                beforeUpload={(file) => {
+                  handlePickPng(file);
+                  return false;
+                }}
+              >
+                <p className="ant-upload-drag-icon">
+                  <InboxOutlined style={{ fontSize: 36 }} />
+                </p>
+                <p className="ant-upload-text">Kéo thả hoặc bấm để chọn file PNG frame</p>
+                <p className="ant-upload-hint">Hệ thống tự tìm các ô trong suốt ngay sau khi chọn file. Tối đa 30 MB.</p>
+              </Upload.Dragger>
+            </Spin>
+          </div>
+        )}
+
+        {/* Form luôn được mount (forceRender) để useForm/useWatch hoạt động; chỉ hiện khi đã có file */}
+        <Row gutter={20} style={{ display: draft ? undefined : 'none' }}>
+          <Col xs={24} lg={15}>
+            {draft && (
+              <VisualHoleEditor
+                key={draft.objectUrl}
+                imageUrl={draft.objectUrl}
+                canvasWidth={draft.width}
+                canvasHeight={draft.height}
+                holes={draftHoles}
+                onChange={setDraftHoles}
+                autoHoles={draft.autoHoles}
+                layoutId={uploadLayout?.id || '2x2'}
+                expectedHoleCount={uploadLayout?.holeCount}
+                qr={draftQr}
+                onQrChange={setDraftQr}
+              />
+            )}
+          </Col>
+          <Col xs={24} lg={9}>
+            {draft && (
+              <div className="hb-card" style={{ padding: 12, marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="hb-card-name" title={draft.file.name}>
+                      {draft.file.name}
+                    </div>
+                    <div className="hb-hint">
+                      {draft.width}×{draft.height}px · {(draft.file.size / 1024 / 1024).toFixed(1)} MB
+                    </div>
+                  </div>
+                  <Upload
+                    accept=".png,image/png"
+                    showUploadList={false}
+                    beforeUpload={(file) => {
+                      handlePickPng(file);
+                      return false;
+                    }}
+                  >
+                    <Button size="small" loading={detecting}>
+                      Đổi file
+                    </Button>
+                  </Upload>
+                </div>
+                <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {draft.autoHoles && draft.autoHoles.length > 0 ? (
+                    <Tag color="success" icon={<CheckCircleOutlined />} style={{ margin: 0 }}>
+                      Tự động tìm thấy {draft.autoHoles.length} ô
+                    </Tag>
+                  ) : (
+                    <Tag color="warning" style={{ margin: 0 }}>
+                      Không tìm thấy vùng trong suốt
+                    </Tag>
+                  )}
+                  {draft.ignoredEdgeRegions > 0 && (
+                    <Tag style={{ margin: 0 }}>Bỏ qua {draft.ignoredEdgeRegions} vùng trong suốt chạm mép ảnh</Tag>
+                  )}
+                </div>
+                <Upload accept=".xml" showUploadList={false} beforeUpload={handlePickXml}>
+                  <Button size="small" type="link" icon={<FileTextOutlined />} style={{ paddingLeft: 0, marginTop: 4 }}>
+                    {draft.xmlFile ? `Đã nạp ${draft.xmlFile.name}` : 'Nạp toạ độ từ template.xml (tuỳ chọn)'}
+                  </Button>
+                </Upload>
+              </div>
+            )}
+
+            {draft && aspectMismatch && uploadLayout && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="Tỉ lệ file khác khổ ảnh"
+                description={`File ${draft.width}×${draft.height}px nhưng khổ "${uploadLayout.name}" là ${uploadLayout.widthPx}×${uploadLayout.heightPx}px. Ảnh in có thể bị co giãn.`}
+              />
+            )}
+
+            <Form form={uploadForm} layout="vertical" requiredMark={false}>
+              <Form.Item name="name" label="Tên khung" rules={[{ required: true, whitespace: true, message: 'Đặt tên cho khung' }]}>
+                <Input placeholder="Đặt tên cho khung..." maxLength={100} />
+              </Form.Item>
+              <Form.Item name="layoutId" label="Hình dáng (Layout)" rules={[{ required: true, message: 'Chọn layout' }]}>
+                <Select
+                  options={layouts.map((l) => ({ label: `${l.name} · ${l.holeCount} ô`, value: l.id }))}
+                  onChange={() => setLayoutTouched(true)}
+                />
+              </Form.Item>
+              <Row gutter={10}>
+                <Col span={14}>
+                  <Form.Item name="categoryId" label="Danh mục">
+                    <Select allowClear placeholder="Chọn danh mục" options={categories.map((c) => ({ label: c.name, value: c.id }))} />
+                  </Form.Item>
+                </Col>
+                <Col span={10}>
+                  <Form.Item name="displayOrder" label="Thứ tự">
+                    <InputNumber style={{ width: '100%' }} min={0} precision={0} />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Row gutter={10}>
+                <Col span={12}>
+                  <Form.Item name="isActive" label="Hiển thị ngay" valuePropName="checked">
+                    <Switch checkedChildren="Hiện" unCheckedChildren="Ẩn" />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    name="enableOverlay"
+                    label="Overlay Live View"
+                    valuePropName="checked"
+                    tooltip="Hiện frame đè lên màn hình xem trước khi chụp"
+                  >
+                    <Switch
+                      onChange={(on) => {
+                        if (on) {
+                          uploadForm.setFieldValue('enableOverlay', false);
+                          confirmOverlay(() => uploadForm.setFieldValue('enableOverlay', true));
+                        }
+                      }}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </Form>
+
+            {uploadPercent !== null && <Progress percent={uploadPercent} size="small" status="active" />}
+          </Col>
+        </Row>
+      </Modal>
+
+      {/* ------------------------------------------------------------------ Hole + QR editor for existing frame */}
+      <Modal
+        title={editingFrame ? `Ô ảnh & QR: ${editingFrame.name}` : ''}
+        open={!!editingFrame}
+        onCancel={() => setEditingFrame(null)}
+        width={900}
+        maskClosable={false}
+        destroyOnClose
+        footer={[
+          <Button key="cancel" onClick={() => setEditingFrame(null)}>
+            Hủy
+          </Button>,
+          <Button key="save" type="primary" icon={<SaveOutlined />} loading={isSavingHoles} onClick={handleSaveHoles}>
+            Lưu toạ độ
+          </Button>,
+        ]}
+      >
+        {editingFrame && (
+          <VisualHoleEditor
+            imageUrl={resolveAssetUrl(editingFrame.frameUrl)}
+            canvasWidth={editingSize.w}
+            canvasHeight={editingSize.h}
+            holes={editingHoles}
+            onChange={setEditingHoles}
+            autoHoles={editingFrame.holes}
+            restoreLabel="Hoàn tác"
+            restoreTooltip="Khôi phục toạ độ đã lưu"
+            layoutId={editingLayout?.id || editingFrame.layoutId}
+            expectedHoleCount={editingLayout?.holeCount}
+            qr={editingQr}
+            onQrChange={setEditingQr}
+          />
+        )}
+      </Modal>
+
+      {/* ------------------------------------------------------------------ Metadata modal */}
+      <Modal
+        title={metaFrame ? `Sửa frame: ${metaFrame.name}` : ''}
         open={!!metaFrame}
         onCancel={() => setMetaFrame(null)}
         onOk={handleSaveMeta}
@@ -756,41 +1093,49 @@ export default function FramesPage() {
         width={560}
         forceRender
       >
-        <Form form={metaForm} layout="vertical" style={{ marginTop: 12 }}>
-          <Form.Item
-            name="name"
-            label="Tên khung ảnh"
-            rules={[{ required: true, whitespace: true, message: 'Vui lòng đặt tên cho khung ảnh' }]}
-          >
+        <Form form={metaForm} layout="vertical" requiredMark={false} style={{ marginTop: 12 }}>
+          <Form.Item name="name" label="Tên khung" rules={[{ required: true, whitespace: true, message: 'Nhập tên frame' }]}>
             <Input maxLength={100} />
           </Form.Item>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <Form.Item
-              name="layoutId"
-              label="Khổ ảnh (Layout)"
-              rules={[{ required: true, message: 'Vui lòng chọn khổ ảnh' }]}
-            >
-              <Select options={layouts.map((l) => ({ label: `${l.name} (${l.id})`, value: l.id }))} />
-            </Form.Item>
-            <Form.Item name="categoryId" label="Danh mục">
-              <Select
-                allowClear
-                placeholder="Không có danh mục"
-                options={categories.map((c) => ({ label: c.name, value: c.id }))}
-              />
-            </Form.Item>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <Form.Item name="displayOrder" label="Thứ tự hiển thị">
-              <InputNumber style={{ width: '100%' }} min={0} precision={0} />
-            </Form.Item>
-            <Form.Item name="isActive" label="Hiển thị trên Kiosk" valuePropName="checked">
-              <Switch checkedChildren="Bật" unCheckedChildren="Tắt" />
-            </Form.Item>
-          </div>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="layoutId" label="Hình dáng (Layout)" rules={[{ required: true, message: 'Chọn layout' }]}>
+                <Select options={layouts.map((l) => ({ label: `${l.name} · ${l.holeCount} ô`, value: l.id }))} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="categoryId" label="Danh mục">
+                <Select allowClear placeholder="Chưa phân loại" options={categories.map((c) => ({ label: c.name, value: c.id }))} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col span={8}>
+              <Form.Item name="displayOrder" label="Thứ tự">
+                <InputNumber style={{ width: '100%' }} min={0} precision={0} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="isActive" label="Hiển thị" valuePropName="checked">
+                <Switch checkedChildren="Hiện" unCheckedChildren="Ẩn" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="enableOverlay" label="Overlay Live View" valuePropName="checked">
+                <Switch
+                  onChange={(on) => {
+                    if (on) {
+                      metaForm.setFieldValue('enableOverlay', false);
+                      confirmOverlay(() => metaForm.setFieldValue('enableOverlay', true));
+                    }
+                  }}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item
             label="Thay file PNG (tuỳ chọn)"
-            extra="Toạ độ lỗ hiện tại được giữ nguyên. Hãy kiểm tra lại bằng 'Sửa toạ độ lỗ' nếu bố cục thay đổi."
+            extra="Nếu file mới khác kích thước, toạ độ ô được co giãn theo tỉ lệ. Kiểm tra lại bằng nút 'Ô & QR'."
             style={{ marginBottom: 0 }}
           >
             <Upload
@@ -798,8 +1143,12 @@ export default function FramesPage() {
               maxCount={1}
               fileList={metaFile ? [{ uid: 'meta-file', name: metaFile.name, status: 'done' as const }] : []}
               beforeUpload={(file) => {
-                if (!file.name.toLowerCase().endsWith('.png')) {
-                  message.error('Khung ảnh phải là file PNG trong suốt.');
+                if (!/\.png$/i.test(file.name)) {
+                  message.error('Frame phải là file PNG.');
+                  return false;
+                }
+                if (file.size > MAX_FRAME_BYTES) {
+                  message.error('File frame tối đa 30 MB.');
                   return false;
                 }
                 setMetaFile(file);
@@ -811,209 +1160,6 @@ export default function FramesPage() {
             </Upload>
           </Form.Item>
         </Form>
-      </Modal>
-
-      {/* Visual Hole Editor & Inspector Modal for Existing Frame */}
-      <Modal
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ color: '#0f172a', fontWeight: 700 }}>
-              Trình Chỉnh Sửa Tọa Độ Khung: {editingFrame?.name} ({editingFrame?.layoutId})
-            </span>
-            <Tag color="magenta">ID #{editingFrame?.id}</Tag>
-          </div>
-        }
-        open={!!editingFrame}
-        onCancel={() => setEditingFrame(null)}
-        footer={[
-          <Button key="cancel" onClick={() => setEditingFrame(null)}>
-            Hủy
-          </Button>,
-          <Button
-            key="save"
-            type="primary"
-            icon={<SaveOutlined />}
-            loading={isSavingEdit}
-            onClick={handleSaveEditedHoles}
-          >
-            Lưu Tọa Độ Mới
-          </Button>,
-        ]}
-        width={820}
-        destroyOnClose
-      >
-        {editingFrame && (
-          <div>
-            <Alert
-              type="info"
-              showIcon
-              message="Chỉnh sửa ô chụp ảnh trực quan"
-              description="Bạn có thể kéo thả để di chuyển, kéo 4 góc/cạnh để thay đổi kích thước từng ô hoặc bật 'Mô phỏng ảnh chụp' để kiểm tra kết quả lồng ảnh trước khi lưu."
-              style={{ marginBottom: 16 }}
-            />
-            <VisualHoleEditor
-              imageUrl={resolveAssetUrl(editingFrame.frameUrl)}
-              canvasWidth={
-                layouts.find((l) => l.id.toLowerCase() === editingFrame.layoutId.toLowerCase())?.widthPx || 2400
-              }
-              canvasHeight={
-                layouts.find((l) => l.id.toLowerCase() === editingFrame.layoutId.toLowerCase())?.heightPx || 3600
-              }
-              holes={editingHoles}
-              layoutId={editingFrame.layoutId}
-              onChange={setEditingHoles}
-            />
-          </div>
-        )}
-      </Modal>
-
-      {/* Upload Frame & Builder Modal */}
-      <Modal
-        title="Tải Lên Frame Mới (PNG, template.xml, tự quét vùng trong suốt)"
-        open={isUploadModalOpen}
-        onOk={handleUploadSubmit}
-        confirmLoading={submitting}
-        onCancel={() => setIsUploadModalOpen(false)}
-        okText="Lưu Khung Ảnh"
-        cancelText="Hủy"
-        width={840}
-        destroyOnClose
-      >
-        <Tabs
-          activeKey={uploadActiveTab}
-          onChange={(k: any) => setUploadActiveTab(k)}
-          items={[
-            {
-              key: 'quick',
-              label: '1. Nạp File & Nhập Dữ Liệu (Quick Import)',
-              children: (
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    <Upload
-                      accept=".xml"
-                      showUploadList={false}
-                      beforeUpload={(file) => handleXmlImport(file)}
-                    >
-                      <Button icon={<FileTextOutlined />} style={{ borderRadius: 6 }}>
-                        {selectedXmlFile ? `Đã chọn: ${selectedXmlFile.name}` : 'Nạp file template.xml (Kho Frames)'}
-                      </Button>
-                    </Upload>
-                    {hasXmlImported && (
-                      <Tag color="success" icon={<CheckCircleOutlined />}>
-                        Đã nạp {builderHoles.length} ô Holes từ XML
-                      </Tag>
-                    )}
-                  </div>
-
-                  <Form form={form} layout="vertical">
-                    <Form.Item
-                      label="File Khung Viền PNG (Trong suốt các ô chụp ảnh)"
-                      required
-                      tooltip="File PNG viền trang trí. Hệ thống sẽ giữ nguyên tọa độ XML nếu có, hoặc quét kênh trong suốt."
-                    >
-                      <Upload.Dragger
-                        accept=".png,image/png"
-                        fileList={fileList}
-                        beforeUpload={(file) => {
-                          handlePngFileSelect(file);
-                          return false;
-                        }}
-                        onRemove={() => {
-                          setFileList([]);
-                          setPreviewPngUrl(null);
-                          if (!hasXmlImported) setBuilderHoles([]);
-                        }}
-                        maxCount={1}
-                      >
-                        <p className="ant-upload-drag-icon">
-                          <InboxOutlined style={{ color: '#f86fa5', fontSize: 36 }} />
-                        </p>
-                        <p className="ant-upload-text" style={{ fontSize: 14 }}>
-                          Kéo thả file ảnh PNG viền khung vào đây
-                        </p>
-                        <p className="ant-upload-hint" style={{ fontSize: 12 }}>
-                          Chuẩn kích thước photobooth: 2400x3600 (4x6 / 2x2) hoặc 1200x3600 (1x4 dải dọc)
-                        </p>
-                      </Upload.Dragger>
-                    </Form.Item>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                      <Form.Item
-                        name="layoutId"
-                        label="Khổ Ảnh (Layout)"
-                        rules={[{ required: true, message: 'Vui lòng chọn khổ ảnh' }]}
-                      >
-                        <Select
-                          placeholder="Chọn khổ ảnh"
-                          options={layouts.map((l) => ({ label: `${l.name} (${l.id})`, value: l.id }))}
-                        />
-                      </Form.Item>
-
-                      <Form.Item name="categoryId" label="Chủ Đề / Danh Mục">
-                        <Select
-                          placeholder="Chọn chủ đề"
-                          allowClear
-                          options={categories.map((c) => ({ label: c.name, value: c.id }))}
-                        />
-                      </Form.Item>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
-                      <Form.Item
-                        name="name"
-                        label="Tên Khung Ảnh"
-                        rules={[{ required: true, message: 'Vui lòng đặt tên cho khung ảnh' }]}
-                      >
-                        <Input placeholder="ví dụ: Vintage Film Strip 4 Ô" />
-                      </Form.Item>
-
-                      <Form.Item name="displayOrder" label="Thứ tự hiển thị">
-                        <InputNumber style={{ width: '100%' }} min={0} />
-                      </Form.Item>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: 24 }}>
-                      <Form.Item name="isActive" label="Kích hoạt trên Kiosk ngay" valuePropName="checked">
-                        <Switch checkedChildren="Bật" unCheckedChildren="Tắt" />
-                      </Form.Item>
-                    </div>
-                  </Form>
-                </div>
-              ),
-            },
-            {
-              key: 'builder',
-              label: `2. Trình Dựng Tọa Độ Trực Quan (${builderHoles.length} Ô Holes)`,
-              children: (
-                <div style={{ marginTop: 8 }}>
-                  {previewPngUrl ? (
-                    <VisualHoleEditor
-                      imageUrl={previewPngUrl}
-                      canvasWidth={imageDims.w}
-                      canvasHeight={imageDims.h}
-                      holes={builderHoles}
-                      layoutId={form.getFieldValue('layoutId') || '2x2'}
-                      onChange={(next) => {
-                        setBuilderHoles(next);
-                        form.setFieldsValue({ holesJson: JSON.stringify(next) });
-                      }}
-                    />
-                  ) : (
-                    <div style={{ textAlign: 'center', padding: 40, background: '#f8fafc', borderRadius: 8 }}>
-                      <PictureOutlined style={{ fontSize: 36, color: '#94a3b8', marginBottom: 12 }} />
-                      <Text style={{ display: 'block', color: '#64748b' }}>
-                        Vui lòng chọn hoặc kéo thả file ảnh PNG viền khung ở Tab 1 trước khi mở Trình Dựng Tọa Độ!
-                      </Text>
-                      <Button style={{ marginTop: 12 }} onClick={() => setUploadActiveTab('quick')}>
-                        Chuyển về Tab 1 để chọn ảnh
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ),
-            },
-          ]}
-        />
       </Modal>
     </div>
   );

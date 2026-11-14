@@ -149,6 +149,14 @@ BEGIN
     CREATE INDEX IF NOT EXISTS ix_photo_frames_is_active ON public.photo_frames(""IsActive"");
     CREATE INDEX IF NOT EXISTS ix_photo_frames_display_order ON public.photo_frames(""DisplayOrder"");
 
+    -- 6b. Cột mở rộng cho photo_frames (kích thước PNG, QR, overlay) - chỉ thêm, không sửa dữ liệu cũ
+    ALTER TABLE public.photo_frames ADD COLUMN IF NOT EXISTS ""FrameWidth"" INT NOT NULL DEFAULT 0;
+    ALTER TABLE public.photo_frames ADD COLUMN IF NOT EXISTS ""FrameHeight"" INT NOT NULL DEFAULT 0;
+    ALTER TABLE public.photo_frames ADD COLUMN IF NOT EXISTS ""QrX"" DOUBLE PRECISION;
+    ALTER TABLE public.photo_frames ADD COLUMN IF NOT EXISTS ""QrY"" DOUBLE PRECISION;
+    ALTER TABLE public.photo_frames ADD COLUMN IF NOT EXISTS ""QrSize"" DOUBLE PRECISION;
+    ALTER TABLE public.photo_frames ADD COLUMN IF NOT EXISTS ""EnableOverlay"" BOOLEAN NOT NULL DEFAULT FALSE;
+
     -- 7. Bảng photo_filters
     CREATE TABLE IF NOT EXISTS public.photo_filters (
         ""Id"" SERIAL PRIMARY KEY,

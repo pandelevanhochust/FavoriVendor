@@ -224,7 +224,18 @@ public record PhotoFrameDto(
     List<HoleRectDto> Holes,
     bool IsActive,
     int DisplayOrder,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    int FrameWidth = 0,
+    int FrameHeight = 0,
+    double? QrX = null,
+    double? QrY = null,
+    double? QrSize = null,
+    bool EnableOverlay = false);
+
+/// <summary>Bật/tắt hàng loạt. Ids null hoặc rỗng = áp dụng cho mọi frame.</summary>
+public record BulkFrameVisibilityRequest(bool IsActive, List<int>? Ids);
+
+public record BulkFrameVisibilityResult(int Updated);
 
 public record UpdatePhotoFrameMetaRequest(
     string LayoutId,
