@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -12,6 +12,7 @@ import {
   Popconfirm,
   Progress,
   Row,
+  Segmented,
   Select,
   Space,
   Spin,
@@ -54,7 +55,15 @@ import {
   resolveAssetUrl,
   updateFrame,
 } from '../api/photoLayoutApi';
-import { DetectedHole, detectTransparentHoles, parseTemplateXml } from '../utils/frameDetector';
+import {
+  DetectedHole,
+  HoleDetectMode,
+  HoleDetectResult,
+  detectFrameHoles,
+  detectHoles,
+  parseTemplateXml,
+  punchPlaceholderHoles,
+} from '../utils/frameDetector';
 import VisualHoleEditor from '../components/frames/VisualHoleEditor';
 
 const MAX_FRAME_BYTES = 30 * 1024 * 1024;
@@ -164,7 +173,24 @@ interface UploadDraft {
   height: number;
   autoHoles: DetectedHole[] | null;
   ignoredEdgeRegions: number;
+  /** Ô trên file là vùng trong suốt hay ô giữ chỗ màu xám đục. */
+  mode: HoleDetectMode;
+  /** Với ô xám: đục trong suốt vùng ô vào PNG trước khi tải lên. */
+  punch: boolean;
   xmlFile: File | null;
+}
+
+const MODE_LABEL: Record<HoleDetectMode, string> = { transparent: 'ô trong suốt', placeholder: 'ô xám' };
+
+/** So sánh toạ độ hai danh sách ô (để biết người dùng đã chỉnh tay hay chưa). */
+function sameHoles(a: DetectedHole[], b: DetectedHole[]) {
+  return (
+    a.length === b.length &&
+    a.every(
+      (h, i) =>
+        h.x === b[i].x && h.y === b[i].y && h.w === b[i].w && h.h === b[i].h && (h.rotation ?? 0) === (b[i].rotation ?? 0)
+    )
+  );
 }
 
 export default function FramesPage() {
@@ -187,8 +213,17 @@ export default function FramesPage() {
   const [draftQr, setDraftQr] = useState<QrPlacement | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [uploadPercent, setUploadPercent] = useState<number | null>(null);
+  /** Đang đục lỗ hoặc tải lên: khoá nút gửi/huỷ để không tạo frame trùng. */
+  const [submitStage, setSubmitStage] = useState<'punching' | 'uploading' | null>(null);
+  // Mỗi lần chọn PNG / dò lại / nạp XML / đóng modal tăng số thứ tự; kết quả dò cũ bị bỏ.
+  const detectSeq = useRef(0);
+  // Giá trị mới nhất cho các hàm async (tránh đọc state cũ trong closure sau await)
+  const draftRef = useRef<UploadDraft | null>(null);
+  const draftHolesRef = useRef<DetectedHole[]>([]);
   const [layoutTouched, setLayoutTouched] = useState(false);
   const [uploadForm] = Form.useForm();
+  draftRef.current = draft;
+  draftHolesRef.current = draftHoles;
   const watchedUploadLayout: string | undefined = Form.useWatch('layoutId', uploadForm);
 
   // Sửa toạ độ ô + QR của frame có sẵn
@@ -291,10 +326,13 @@ export default function FramesPage() {
   // ------------------------------------------------------------------ Upload flow
 
   const resetUpload = () => {
+    detectSeq.current++;
+    setDetecting(false);
     setDraft(null);
     setDraftHoles([]);
     setDraftQr(null);
     setUploadPercent(null);
+    setSubmitStage(null);
     setLayoutTouched(false);
     uploadForm.resetFields();
     uploadForm.setFieldsValue({
@@ -316,14 +354,16 @@ export default function FramesPage() {
   };
 
   const handleCloseUpload = () => {
-    if (uploadPercent !== null) return; // đang tải lên
+    if (submitStage !== null) return; // đang đục lỗ / tải lên
+    detectSeq.current++;
+    setDetecting(false);
     setIsUploadOpen(false);
     setDraft(null);
   };
 
   const handlePickPng = async (file: File) => {
     if (!/\.png$/i.test(file.name) || (file.type && file.type !== 'image/png')) {
-      message.error('Frame phải là ảnh PNG có vùng trong suốt cho ô ảnh.');
+      message.error('Frame phải là ảnh PNG.');
       return;
     }
     if (file.size > MAX_FRAME_BYTES) {
@@ -331,11 +371,13 @@ export default function FramesPage() {
       return;
     }
 
+    const seq = ++detectSeq.current;
     setDetecting(true);
     try {
-      const res = await detectTransparentHoles(file);
+      const res = await detectFrameHoles(file);
+      if (seq !== detectSeq.current) return; // đã chọn file khác / nạp XML / đóng modal
       const objectUrl = URL.createObjectURL(file);
-      const keepXmlHoles = !!draft?.xmlFile;
+      const keepXmlHoles = !!draftRef.current?.xmlFile;
       setDraft((prev) => ({
         file,
         objectUrl,
@@ -343,6 +385,8 @@ export default function FramesPage() {
         height: res.imageHeight,
         autoHoles: res.holes,
         ignoredEdgeRegions: res.ignoredEdgeRegions,
+        mode: res.mode,
+        punch: true,
         xmlFile: prev?.xmlFile ?? null,
       }));
       if (!keepXmlHoles) setDraftHoles(res.holes.map((h) => ({ ...h })));
@@ -355,20 +399,87 @@ export default function FramesPage() {
         if (suggested) uploadForm.setFieldValue('layoutId', suggested.id);
       }
 
-      if (res.holes.length > 0) {
-        message.success(`Tìm thấy ${res.holes.length} ô trong suốt (${res.imageWidth}×${res.imageHeight}px).`);
-      } else {
-        message.warning('Không tìm thấy ô trong suốt. Hãy dùng chế độ "Vẽ ô" để tạo ô thủ công.');
-      }
+      notifyDetection(res, res.alternativeCount);
     } catch (err: any) {
+      if (seq !== detectSeq.current) return;
       console.error(err);
       message.error(err?.message || 'Không phân tích được file PNG.');
     } finally {
-      setDetecting(false);
+      if (seq === detectSeq.current) setDetecting(false);
+    }
+  };
+
+  /**
+   * Thông báo kết quả dò. alternativeCount chỉ có khi dò tự động (đã thử cả hai kiểu);
+   * khi người dùng chọn một kiểu thì chỉ nói về kiểu đó.
+   */
+  const notifyDetection = (res: HoleDetectResult, alternativeCount?: number) => {
+    const otherLabel = MODE_LABEL[res.mode === 'transparent' ? 'placeholder' : 'transparent'];
+    if (res.holes.length === 0) {
+      message.warning(
+        alternativeCount === undefined
+          ? `Không tìm thấy ${MODE_LABEL[res.mode]} nào. Thử kiểu "${otherLabel}" hoặc dùng "Vẽ ô" để tạo ô thủ công.`
+          : 'Không tìm thấy ô trong suốt hay ô xám. Hãy dùng chế độ "Vẽ ô" để tạo ô thủ công.'
+      );
+      return;
+    }
+    const size = `${res.imageWidth}×${res.imageHeight}px`;
+    message.success(
+      res.mode === 'placeholder'
+        ? `Tìm thấy ${res.holes.length} ô xám (${size}). Vùng ô sẽ được đục trong suốt khi tải lên.`
+        : `Tìm thấy ${res.holes.length} ô trong suốt (${size}).`
+    );
+    if (alternativeCount) {
+      message.info(`File cũng có ${alternativeCount} ${otherLabel}. Đổi "Kiểu ô trên file" nếu kết quả chưa đúng.`);
+    }
+  };
+
+  /** Dò lại file hiện tại theo kiểu ô người dùng chọn. */
+  const handleDetectMode = async (mode: HoleDetectMode) => {
+    const current = draftRef.current;
+    if (!current) return;
+    const seq = ++detectSeq.current;
+    setDetecting(true);
+    let res: HoleDetectResult;
+    try {
+      res = await detectHoles(current.file, { mode });
+    } catch (err: any) {
+      if (seq === detectSeq.current) message.error(err?.message || 'Không phân tích được file PNG.');
+      return;
+    } finally {
+      if (seq === detectSeq.current) setDetecting(false);
+    }
+    // Bỏ kết quả nếu trong lúc dò người dùng đã đổi file, nạp XML hoặc đóng modal
+    const latest = draftRef.current;
+    if (seq !== detectSeq.current || !latest || latest.file !== current.file) return;
+
+    setDraft((prev) =>
+      prev && prev.file === current.file
+        ? { ...prev, mode, autoHoles: res.holes, ignoredEdgeRegions: res.ignoredEdgeRegions }
+        : prev
+    );
+    notifyDetection(res);
+
+    // Không ghi đè ô của template.xml, và không xoá ô khi lần dò mới không tìm thấy gì
+    if (latest.xmlFile || res.holes.length === 0) return;
+    const replace = () => setDraftHoles(res.holes.map((h) => ({ ...h })));
+    if (!sameHoles(draftHolesRef.current, latest.autoHoles ?? [])) {
+      Modal.confirm({
+        title: 'Thay các ô đã chỉnh?',
+        content: `Bạn đã chỉnh ô bằng tay. Thay bằng ${res.holes.length} ${MODE_LABEL[mode]} vừa dò được?`,
+        okText: 'Thay ô',
+        cancelText: 'Giữ ô hiện tại',
+        onOk: replace,
+      });
+    } else {
+      replace();
     }
   };
 
   const handlePickXml = (file: File) => {
+    // Huỷ kết quả dò đang chạy để không ghi đè toạ độ của template
+    detectSeq.current++;
+    setDetecting(false);
     const reader = new FileReader();
     reader.onload = () => {
       try {
@@ -424,8 +535,37 @@ export default function FramesPage() {
       return;
     }
 
+    if (submitStage !== null || detecting) return;
+
+    let uploadFile = draft.file;
+    if (draft.mode === 'placeholder' && draft.punch) {
+      setSubmitStage('punching');
+      try {
+        const punched = await punchPlaceholderHoles(draft.file, draftHoles);
+        if (punched.clearedPixels === 0) {
+          message.warning('Không có pixel xám nào trong các ô để đục. Kiểm tra lại vị trí ô.');
+          setSubmitStage(null);
+          return;
+        }
+        // PNG xuất lại từ canvas có thể nặng hơn file gốc
+        if (punched.file.size > MAX_FRAME_BYTES) {
+          message.error(
+            `PNG sau khi đục lỗ nặng ${(punched.file.size / 1024 / 1024).toFixed(1)} MB, vượt giới hạn 30 MB. ` +
+              'Hãy đục ô trong suốt sẵn trong phần mềm thiết kế hoặc giảm dung lượng file.'
+          );
+          setSubmitStage(null);
+          return;
+        }
+        uploadFile = punched.file;
+      } catch (err: any) {
+        message.error('Không đục lỗ được file PNG: ' + (err?.message || 'lỗi không xác định'));
+        setSubmitStage(null);
+        return;
+      }
+    }
+
     const formData = new FormData();
-    formData.append('file', draft.file);
+    formData.append('file', uploadFile);
     formData.append('name', vals.name.trim());
     formData.append('layoutId', vals.layoutId);
     if (vals.categoryId != null) formData.append('categoryId', String(vals.categoryId));
@@ -437,6 +577,7 @@ export default function FramesPage() {
     formData.append('holesJson', holesMetadataJson(draftHoles, draft.width, draft.height));
     if (draftQr) appendQr(formData, draftQr);
 
+    setSubmitStage('uploading');
     setUploadPercent(0);
     try {
       const created = await createFrame(formData, setUploadPercent);
@@ -450,6 +591,7 @@ export default function FramesPage() {
       message.error(errorMessage(err, 'Có lỗi khi tải khung ảnh lên máy chủ. Vui lòng thử lại.'));
     } finally {
       setUploadPercent(null);
+      setSubmitStage(null);
     }
   };
 
@@ -851,22 +993,29 @@ export default function FramesPage() {
         title="Tải lên khung ảnh"
         open={isUploadOpen}
         onCancel={handleCloseUpload}
+        closable={submitStage === null}
+        keyboard={submitStage === null}
         width={draft ? 1120 : 720}
         maskClosable={false}
         footer={
           draft
             ? [
-                <Button key="cancel" onClick={handleCloseUpload} disabled={uploadPercent !== null}>
+                <Button key="cancel" onClick={handleCloseUpload} disabled={submitStage !== null}>
                   Hủy bỏ
                 </Button>,
                 <Button
                   key="submit"
                   type="primary"
                   icon={<UploadOutlined />}
-                  loading={uploadPercent !== null}
+                  loading={submitStage !== null}
+                  disabled={detecting}
                   onClick={handleUploadSubmit}
                 >
-                  {uploadPercent !== null ? `Đang tải lên ${uploadPercent}%` : 'Lưu và tải lên hệ thống'}
+                  {submitStage === 'punching'
+                    ? 'Đang đục lỗ PNG...'
+                    : submitStage === 'uploading'
+                      ? `Đang tải lên ${uploadPercent ?? 0}%`
+                      : 'Lưu và tải lên hệ thống'}
                 </Button>,
               ]
             : null
@@ -951,12 +1100,13 @@ export default function FramesPage() {
                   <Upload
                     accept=".png,image/png"
                     showUploadList={false}
+                    disabled={submitStage !== null}
                     beforeUpload={(file) => {
                       handlePickPng(file);
                       return false;
                     }}
                   >
-                    <Button size="small" loading={detecting}>
+                    <Button size="small" loading={detecting} disabled={submitStage !== null}>
                       Đổi file
                     </Button>
                   </Upload>
@@ -964,18 +1114,44 @@ export default function FramesPage() {
                 <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                   {draft.autoHoles && draft.autoHoles.length > 0 ? (
                     <Tag color="success" icon={<CheckCircleOutlined />} style={{ margin: 0 }}>
-                      Tự động tìm thấy {draft.autoHoles.length} ô
+                      Tự động tìm thấy {draft.autoHoles.length} {MODE_LABEL[draft.mode]}
                     </Tag>
                   ) : (
                     <Tag color="warning" style={{ margin: 0 }}>
-                      Không tìm thấy vùng trong suốt
+                      Không tìm thấy {MODE_LABEL[draft.mode]}
                     </Tag>
                   )}
                   {draft.ignoredEdgeRegions > 0 && (
-                    <Tag style={{ margin: 0 }}>Bỏ qua {draft.ignoredEdgeRegions} vùng trong suốt chạm mép ảnh</Tag>
+                    <Tag style={{ margin: 0 }}>Bỏ qua {draft.ignoredEdgeRegions} vùng chạm mép ảnh</Tag>
                   )}
                 </div>
-                <Upload accept=".xml" showUploadList={false} beforeUpload={handlePickXml}>
+                <div style={{ marginTop: 10 }}>
+                  <div className="hb-hint" style={{ marginBottom: 4 }}>Kiểu ô trên file</div>
+                  <Segmented
+                    size="small"
+                    value={draft.mode}
+                    disabled={detecting || submitStage !== null}
+                    onChange={(v) => handleDetectMode(v as HoleDetectMode)}
+                    options={[
+                      { label: 'Trong suốt', value: 'transparent' },
+                      { label: 'Ô xám', value: 'placeholder' },
+                    ]}
+                  />
+                  {draft.mode === 'placeholder' && (
+                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                      <Switch
+                        size="small"
+                        checked={draft.punch}
+                        onChange={(punch) => setDraft((prev) => (prev ? { ...prev, punch } : prev))}
+                      />
+                      <span className="hb-hint">
+                        Đục trong suốt phần xám trong các ô khi tải lên (giữ nguyên góc bo, bóng đổ). Tắt nếu máy chụp
+                        tự vẽ ảnh đè lên frame.
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <Upload accept=".xml" showUploadList={false} beforeUpload={handlePickXml} disabled={submitStage !== null}>
                   <Button size="small" type="link" icon={<FileTextOutlined />} style={{ paddingLeft: 0, marginTop: 4 }}>
                     {draft.xmlFile ? `Đã nạp ${draft.xmlFile.name}` : 'Nạp toạ độ từ template.xml (tuỳ chọn)'}
                   </Button>
